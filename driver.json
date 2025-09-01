@@ -1,0 +1,45 @@
+{
+  "driver_id": "lutron_driver",
+  "version": "0.1.0",
+  "min_core_api": "0.20.0",
+  "name": { "en": "Lutron Caseta" },
+  "icon": "uc:lutron",
+  "description": {
+    "en": "Control your Lutron Caseta devices from your Unfolded Circle Remote.",
+    "de": "Steuern Sie Ihre Lutron Caseta-Geräte von Ihrer Unfolded Circle Remote aus.",
+    "fr": "Contrôlez vos appareils Lutron Caseta depuis votre télécommande Unfolded Circle."
+  },
+  "developer": {
+    "name": "Jack Powell",
+    "email": "jackjpowell@gmail.com",
+    "url": "https://github.com/jackjpowell"
+  },
+  "home_page": "https://github.com/JackJPowell/uc-intg-lutron",
+  "setup_data_schema": {
+    "title": {
+      "en": "Integration setup",
+      "de": "Integrationssetup",
+      "fr": "Configuration de l'intégration"
+    },
+    "settings": [
+      {
+        "id": "info",
+        "label": {
+          "en": "Setup process",
+          "de": "Setup Fortschritt",
+          "fr": "Progression de la configuration"
+        },
+        "field": {
+          "label": {
+            "value": {
+              "en": "This integration will allow you to control Lutron Caseta devices on your network.",
+              "de": "Diese Integration ermöglicht es Ihnen, Lutron Caseta-Geräte in Ihrem Netzwerk zu steuern.",
+              "fr": "Cette intégration vous permettra de contrôler les appareils Lutron Caseta sur votre réseau."
+            }
+          }
+        }
+      }
+    ]
+  },
+  "release_date": "2025-09-01"
+}
