@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "min_core_api": "0.20.0",
   "name": { "en": "Lutron Caseta" },
-  "icon": "uc:lutron",
+  "icon": "uc:lightbulb",
   "description": {
     "en": "Control your Lutron Caseta devices from your Unfolded Circle Remote.",
     "de": "Steuern Sie Ihre Lutron Caseta-Geräte von Ihrer Unfolded Circle Remote aus.",

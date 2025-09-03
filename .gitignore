@@ -95,6 +95,7 @@ ENV/
 .pydevproject
 .pypirc
 .pytest_cache
+caseta*
 
 # Visual Studio Code
 .vscode/

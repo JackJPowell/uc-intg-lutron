@@ -1,14 +1,14 @@
 [![Discord](https://badgen.net/discord/online-members/zGVYf58)](https://discord.gg/zGVYf58)
-![GitHub Release](https://img.shields.io/github/v/release/jackjpowell/uc-intg-jvc)
-![GitHub Downloads (all assets, all releases)](https://img.shields.io/github/downloads/jackjpowell/uc-intg-jvc/total)
+![GitHub Release](https://img.shields.io/github/v/release/jackjpowell/uc-intg-lutron)
+![GitHub Downloads (all assets, all releases)](https://img.shields.io/github/downloads/jackjpowell/uc-intg-lutron/total)
 <a href="#"><img src="https://img.shields.io/maintenance/yes/2025.svg"></a>
 [![Buy Me A Coffee](https://img.shields.io/badge/Buy_Me_A_Coffee&nbsp;☕-FFDD00?logo=buy-me-a-coffee&logoColor=white&labelColor=grey)](https://buymeacoffee.com/jackpowell)
 
-# Lutron Caseta integration for Remote Two
+# Lutron Caseta integration for Unfolded Circle Remotes
 
 Using [uc-integration-api](https://github.com/aitatoi/integration-python-library)
 
-This integration allows you to control your Lutron Caseta lights and covers from your Unfolded Circle Remote.
+This integration allows you to control your Lutron Caseta lights from your Unfolded Circle Remote.
 
 ## Light
 Supported attributes:
@@ -18,13 +18,16 @@ Supported commands:
 - Turn on & off
 - Brightness
 
-## Cover
-- Up
-- Down
-- Toggle
-
 ## Usage
 The simpliest way to get started is by uploading this integration to your unfolded circle remote. You'll find the option on the integration tab in the web configurator. Simply upload the .tar.gz file attached to the release. This option is nice and doesn't require a separate docker instance to host the package. However, upgrading is a fully manual process. To help with this, a docker image is also provided that allows you to run it externally from the remote and easily upgrade when new versions are released. 
+
+## Setup
+You will be walked through the setup process after connecting to the integration. It first performs a scan and will discover any Lutron Caseta Smart Hubs on your network. You have the option to enter an address manually if needed. 
+After this step, you will need to press the small black button on the back of your hub to complete the pairing process. 
+
+## Future Plans
+- Add support for Lutron Scenes
+- Add support for Cover Entities
 
 ### Install on Remote
 

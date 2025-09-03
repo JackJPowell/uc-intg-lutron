@@ -13,7 +13,9 @@ from typing import Any, ParamSpec, TypeVar
 from pylutron_caseta.smartbridge import Smartbridge
 from pyee.asyncio import AsyncIOEventEmitter
 from ucapi.media_player import Attributes as MediaAttr
-from config import LutronConfig
+from ucapi import EntityTypes
+from config import LutronConfig, create_entity_id
+from const import LutronLightInfo
 
 _LOG = logging.getLogger(__name__)
 
@@ -34,7 +36,7 @@ _P = ParamSpec("_P")
 
 
 @dataclass
-class LutronLightInfo:
+class LutronCoverInfo:
     device_id: str
     current_state: int
     type: str
@@ -66,7 +68,8 @@ class SmartHub:
         self._connection_attempts: int = 0
         self._state: PowerState = PowerState.OFF
         self._features: dict = {}
-        self.entities: list = [LutronLightInfo]
+        self._lights: list = [LutronLightInfo]
+        self._covers: list = [LutronCoverInfo]
 
     @property
     def device_config(self) -> LutronConfig:
@@ -83,7 +86,7 @@ class SmartHub:
     @property
     def log_id(self) -> str:
         """Return a log identifier."""
-        return self._config.name if self._config.name else self._config.identifier
+        return self._config.identifier
 
     @property
     def name(self) -> str:
@@ -98,7 +101,7 @@ class SmartHub:
     @property
     def state(self) -> PowerState | None:
         """Return the device state."""
-        return self._state.upper()
+        return "ON" if self._is_connected else "OFF"
 
     @property
     def attributes(self) -> dict[str, any]:
@@ -108,9 +111,24 @@ class SmartHub:
         }
         return updated_data
 
+    @property
+    def lights(self) -> list[Any]:
+        """Return the list of light entities."""
+        return self._lights
+
+    @property
+    def covers(self) -> list[Any]:
+        """Return the list of cover entities."""
+        return self._covers
+
+    @property
+    def is_connected(self) -> bool:
+        """Return if the device is connected."""
+        return self._is_connected
+
     async def connect(self) -> None:
-        """Establish connection to the AVR."""
-        if self.state != PowerState.OFF:
+        """Establish connection to the Lutron device."""
+        if self.is_connected:
             return
 
         _LOG.debug("[%s] Connecting to device", self.log_id)
@@ -120,19 +138,6 @@ class SmartHub:
     async def _connect_setup(self) -> None:
         try:
             await self._connect()
-
-            if self.state != PowerState.OFF:
-                _LOG.debug("[%s] Device is alive", self.log_id)
-                self.events.emit(
-                    EVENTS.UPDATE, self._config.identifier, {"state": self.state}
-                )
-            else:
-                _LOG.debug("[%s] Device is not alive", self.log_id)
-                self.events.emit(
-                    EVENTS.UPDATE,
-                    self._config.identifier,
-                    {"state": PowerState.OFF},
-                )
         except asyncio.CancelledError:
             pass
         except Exception as err:  # pylint: disable=broad-exception-caught
@@ -143,7 +148,11 @@ class SmartHub:
         self.events.emit(EVENTS.CONNECTED, self._config.identifier)
         _LOG.debug("[%s] Connected", self.log_id)
 
-        await self._update_attributes()
+        self._update_attributes()
+        for light in self._lights:
+            self._lutron_smart_hub.add_subscriber(
+                light.device_id, self._update_attributes
+            )
 
     async def _connect(self) -> None:
         """Connect to the device."""
@@ -154,62 +163,105 @@ class SmartHub:
         )
         try:
             await self._lutron_smart_hub.connect()
+            self._lights = self.get_lights()
             self._is_connected = True
             self._state = PowerState.ON
             _LOG.info("[%s] Connected to device", self.log_id)
         except Exception as err:
             _LOG.error("[%s] Connection error: %s", self.log_id, err)
-            self._state = PowerState.OFF
+            self._is_connected = False
 
-    async def _update_attributes(self) -> None:
-        _LOG.debug("[%s] Updating app list", self.log_id)
+    async def disconnect(self) -> None:
+        """Disconnect from the device."""
+        _LOG.debug("[%s] Disconnecting from device", self.log_id)
+        await self._lutron_smart_hub.close()
+        self._is_connected = False
+        self._state = PowerState.OFF
+        self.events.emit(EVENTS.DISCONNECTED, self._config.identifier)
+
+    def _update_attributes(self) -> None:
         update = {}
-
         try:
-            lights = self._lutron_smart_hub.get_devices_by_domain("light")
+            self._lights = self.get_lights()
 
-        except Exception as err:  # pylint: disable=broad-exception-caught
-            _LOG.error("[%s] Error retrieving status: %s", self.log_id, err)
+            for entity in self._lights:
+                update = {}
+                update["state"] = "ON" if entity.current_state > 0 else "OFF"
+                update["brightness"] = int(entity.current_state * 255 / 100)
 
-        try:
-            for entity in lights:
-                self.entities.append(
-                    LutronLightInfo(
-                        device_id=entity.device_id,
-                        current_state=entity.current_state,
-                        type=entity.type,
-                        name=entity.name,
-                    )
+                self.events.emit(
+                    EVENTS.UPDATE,
+                    create_entity_id(
+                        self.device_config.identifier,
+                        entity.device_id,
+                        EntityTypes.LIGHT,
+                    ),
+                    update,
                 )
-                update["state"] = entity.current_state
-                self.events.emit(EVENTS.UPDATE, self._config.identifier, update)
 
         except Exception:  # pylint: disable=broad-exception-caught
             _LOG.exception("[%s] App list: protocol error", self.log_id)
 
-    async def send_command(self, command: str, *args: Any, **kwargs: Any) -> str:
-        """Send a command to the Bridge."""
-        update = {}
-        res = ""
-        try:
-            _LOG.debug(
-                "[%s] Sending command: %s, args: %s, kwargs: %s",
-                self.log_id,
-                command,
-                args,
-                kwargs,
+    def get_lights(self) -> list[Any]:
+        """Return the list of light entities."""
+        lights = self._lutron_smart_hub.get_devices_by_domain("light")
+        light_list = []
+        for entity in lights:
+            light_list.append(
+                LutronLightInfo(
+                    device_id=entity.get("device_id"),
+                    current_state=entity.get("current_state"),
+                    type=entity.get("type"),
+                    name=entity.get("name"),
+                    model=entity.get("model"),
+                )
             )
-            match command:
-                case "powerOn":
-                    pass
+        return light_list
 
-            self.events.emit(EVENTS.UPDATE, self._config.identifier, update)
-            return res
+    async def turn_on_light(self, light_id: str, brightness: int = None) -> None:
+        """Turn on a light with a specific brightness."""
+        try:
+            if brightness is not None:
+                await self._lutron_smart_hub.set_value(light_id, brightness)
+            else:
+                await self._lutron_smart_hub.turn_on(light_id)
+                self.events.emit(
+                    EVENTS.UPDATE,
+                    self._config.identifier,
+                    {"state": "ON", "brightness": brightness},
+                )
+        except Exception as err:  # pylint: disable=broad-exception-caught
+            _LOG.error("[%s] Error turning on light %s: %s", self.log_id, light_id, err)
+
+    async def turn_off_light(self, light_id: str) -> None:
+        """Turn off a light."""
+        try:
+            await self._lutron_smart_hub.turn_off(light_id)
+            self.events.emit(
+                EVENTS.UPDATE,
+                self._config.identifier,
+                {"state": "OFF", "brightness": 0},
+            )
         except Exception as err:  # pylint: disable=broad-exception-caught
             _LOG.error(
-                "[%s] Error sending command %s: %s",
-                self.log_id,
-                command,
-                err,
+                "[%s] Error turning off light %s: %s", self.log_id, light_id, err
             )
-            raise Exception(err) from err  # pylint: disable=broad-exception-raised
+
+    async def toggle_light(self, light_id: str) -> None:
+        """Toggle a light."""
+        try:
+            is_on = self._lutron_smart_hub.is_on(light_id)
+            if is_on:
+                await self._lutron_smart_hub.turn_off(light_id)
+            else:
+                await self._lutron_smart_hub.turn_on(light_id)
+            self.events.emit(
+                EVENTS.UPDATE,
+                self._config.identifier,
+                {
+                    "state": "ON" if not is_on else "OFF",
+                    "brightness": 100 if not is_on else 0,
+                },
+            )
+        except Exception as err:  # pylint: disable=broad-exception-caught
+            _LOG.error("[%s] Error toggling light %s: %s", self.log_id, light_id, err)

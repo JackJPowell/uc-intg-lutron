@@ -19,10 +19,10 @@ pip3 install -r test-requirements.txt
 The following tests are run as GitHub action for each push on the main branch and for pull requests.
 They can also be run anytime on a local developer machine:
 ```shell
-python -m pylint intg-jvc
-python -m flake8 intg-jvc --count --show-source --statistics
-python -m isort intg-jvc/. --check --verbose 
-python -m black intg-jvc --check --verbose --line-length 120
+python -m pylint intg-lutron
+python -m flake8 intg-lutron --count --show-source --statistics
+python -m isort intg-lutron/. --check --verbose 
+python -m black intg-lutron --check --verbose --line-length 120
 ```
 
 Linting integration in PyCharm/IntelliJ IDEA:
@@ -31,7 +31,7 @@ Linting integration in PyCharm/IntelliJ IDEA:
 
 ### Format Code
 ```shell
-python -m black intg-jvc --line-length 120
+python -m black intg-lutron --line-length 120
 ```
 
 PyCharm/IntelliJ IDEA integration:
@@ -44,5 +44,5 @@ PyCharm/IntelliJ IDEA integration:
 ### Sort Imports
 
 ```shell
-python -m isort intg-jvc/.
+python -m isort intg-lutron/.
 ```

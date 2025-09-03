@@ -9,9 +9,10 @@ from ipaddress import ip_address
 
 import config
 from config import LutronConfig
-from discover import ZeroconfDiscovery
+from discover import ZeroconfScanner
 from pylutron_caseta.smartbridge import Smartbridge
-from bridge import SmartHub
+from pylutron_caseta.pairing import async_pair
+from bridge import LutronLightInfo
 from ucapi import (
     AbortDriverSetup,
     DriverSetupRequest,
@@ -51,7 +52,7 @@ _user_input_manual = RequestUserInput(
                 "label": {
                     "value": {
                         "en": (
-                            "Please supply the IP address or Hostname of your Lutron Caseta Device."
+                            "Please supply the IP address of your Lutron Caseta Device."
                         ),
                     }
                 }
@@ -62,6 +63,19 @@ _user_input_manual = RequestUserInput(
             "id": "ip",
             "label": {
                 "en": "IP Address",
+            },
+        },
+        {
+            "id": "setup_info",
+            "label": {
+                "en": "",
+            },
+            "field": {
+                "label": {
+                    "value": {
+                        "en": "After pressing 'Next', press the small black button on the back of your Lutron Caseta Smart Hub to complete the pairing process.",
+                    }
+                }
             },
         },
     ],
@@ -98,8 +112,15 @@ async def driver_setup_handler(
             _setup_step == SetupSteps.DISCOVER
             and "ip" in msg.input_values
             and msg.input_values.get("ip") != "manual"
+            and "paired" in msg.input_values
         ):
             return await _handle_creation(msg)
+        if (
+            _setup_step == SetupSteps.DISCOVER
+            and "ip" in msg.input_values
+            and msg.input_values.get("ip") != "manual"
+        ):
+            return await _handle_pairing(msg)
         if (
             _setup_step == SetupSteps.DISCOVER
             and "ip" in msg.input_values
@@ -142,14 +163,14 @@ async def _handle_configuration_mode(
             _setup_step = SetupSteps.DISCOVER
             return await _handle_discovery()
         case "update":
-            choice = msg.input_values["choice"]
+            choice = int(msg.input_values["choice"])
             if not config.devices.remove(choice):
                 _LOG.warning("Could not update device from configuration: %s", choice)
                 return SetupError(error_type=IntegrationSetupError.OTHER)
             _setup_step = SetupSteps.DISCOVER
             return await _handle_discovery()
         case "remove":
-            choice = msg.input_values["choice"]
+            choice = int(msg.input_values["choice"])
             if not config.devices.remove(choice):
                 _LOG.warning("Could not remove device from configuration: %s", choice)
                 return SetupError(error_type=IntegrationSetupError.OTHER)
@@ -177,15 +198,15 @@ async def _handle_discovery() -> RequestUserInput | SetupError:
     """
     global _setup_step  # pylint: disable=global-statement
 
-    zeroconf = ZeroconfDiscovery()
-    await zeroconf.start()
-    if len(zeroconf.discovered) > 0:
+    zeroconf = ZeroconfScanner()
+    await zeroconf.scan()
+    if len(zeroconf.found_services) > 0:
         _LOG.debug("Found Lutron Caseta Devices")
 
         dropdown_devices = []
-        for device in zeroconf.discovered:
+        for device in zeroconf.found_services:
             dropdown_devices.append(
-                {"id": device.address, "label": {"en": f"{device.type}"}}
+                {"id": device.address, "label": {"en": device.address}}
             )
 
         dropdown_devices.append({"id": "manual", "label": {"en": "Setup Manually"}})
@@ -194,29 +215,28 @@ async def _handle_discovery() -> RequestUserInput | SetupError:
             {"en": "Discovered Lutron Caseta Devices"},
             [
                 {
+                    "id": "ip",
+                    "label": {
+                        "en": "Discovered Smart Hubs:",
+                    },
                     "field": {
                         "dropdown": {
                             "value": dropdown_devices[0]["id"],
                             "items": dropdown_devices,
                         }
                     },
-                    "id": "ip",
-                    "label": {
-                        "en": "Discovered Projectors:",
-                    },
                 },
                 {
-                    "field": {"text": {"value": ""}},
-                    "id": "name",
+                    "id": "info",
                     "label": {
-                        "en": "Projector Name",
+                        "en": "",
                     },
-                },
-                {
-                    "field": {"text": {"value": ""}},
-                    "id": "password",
-                    "label": {
-                        "en": "Password (Optional)",
+                    "field": {
+                        "label": {
+                            "value": {
+                                "en": "After pressing 'Next', press the small black button on the back of your Lutron Caseta Smart Hub to complete the pairing process.",
+                            }
+                        }
                     },
                 },
             ],
@@ -256,14 +276,14 @@ async def _handle_driver_setup(
         dropdown_devices = []
         for device in config.devices.all():
             dropdown_devices.append(
-                {"id": device.identifier, "label": {"en": f"{device.name}"}}
+                {"id": str(device.identifier), "label": {"en": f"{device.name}"}}
             )
 
         dropdown_actions = [
             {
                 "id": "add",
                 "label": {
-                    "en": "Add a new JVC Projector",
+                    "en": "Add a new Lutron Smart Hub",
                 },
             },
         ]
@@ -274,7 +294,7 @@ async def _handle_driver_setup(
                 {
                     "id": "update",
                     "label": {
-                        "en": "Update information for selected JVC Projector",
+                        "en": "Update information for selected Lutron Smart Hub",
                     },
                 },
             )
@@ -282,7 +302,7 @@ async def _handle_driver_setup(
                 {
                     "id": "remove",
                     "label": {
-                        "en": "Remove selected JVC Projector",
+                        "en": "Remove selected Lutron Smart Hub",
                     },
                 },
             )
@@ -340,6 +360,22 @@ async def _handle_driver_setup(
     return await _handle_discovery()
 
 
+async def _handle_pairing(
+    msg: DriverSetupRequest,
+) -> RequestUserInput | SetupError:
+    ip = msg.input_values["ip"]
+    data = await async_pair(ip)
+    with open("caseta-bridge.crt", "w") as cacert:
+        cacert.write(data["ca"])
+    with open("caseta.crt", "w") as cert:
+        cert.write(data["cert"])
+    with open("caseta.key", "w") as key:
+        key.write(data["key"])
+    msg.input_values["paired"] = "true"
+
+    return await _handle_creation(msg)
+
+
 async def _handle_creation(
     msg: DriverSetupRequest,
 ) -> RequestUserInput | SetupError:
@@ -353,8 +389,7 @@ async def _handle_creation(
     """
 
     ip = msg.input_values["ip"]
-    password = msg.input_values["password"]
-    name = msg.input_values["name"]
+    lightinfo = []
 
     if ip != "":
         # Check if input is a valid ipv4 or ipv6 address
@@ -372,20 +407,39 @@ async def _handle_creation(
             )
             try:
                 await lutron_smart_hub.connect()
-                info = await lutron_smart_hub.get_devices()
+                lights = lutron_smart_hub.get_devices_by_domain("light")
+                devices = lutron_smart_hub.get_devices()
             finally:
                 await lutron_smart_hub.close()
-            _LOG.debug("Lutron Smart Hub info: %s", info)
+            _LOG.debug("Lutron Smart Hub info: %s", lights)
+
+            # write a comprehension that pulls out the device_id that is equal to 1
+            smarthub = devices["1"]
+
+            for light in lights:
+                lightinfo.append(
+                    LutronLightInfo(
+                        device_id=light["device_id"],
+                        current_state=light["current_state"],
+                        type=light["type"],
+                        name=light["name"].replace("_", " "),
+                        model=light["model"],
+                    )
+                )
 
             device = LutronConfig(
-                identifier="HOLD",
+                identifier=smarthub["serial"],
                 address=ip,
+                name=smarthub["name"].replace("_", " "),
+                model=smarthub["model"],
+                lights=lightinfo,
+                covers=[],
             )
 
             config.devices.add_or_update(device)
         except Exception as ex:  # pylint: disable=broad-exception-caught
             _LOG.error("Unable to connect at IP: %s. Exception: %s", ip, ex)
-            _LOG.info("Please check if you entered the correct ip of the projector")
+            _LOG.info("Please check if you entered the correct ip of the lutron hub")
             return SetupError(IntegrationSetupError.CONNECTION_REFUSED)
     else:
         _LOG.info("No ip address entered")

@@ -1,62 +1,43 @@
-"""Discovery module for SDDP protocol."""
+"""Discovery module for Zeroconf protocol."""
 
+import asyncio
 from dataclasses import dataclass
-from typing import Iterable, Optional
-from zeroconf import ServiceBrowser, ServiceListener, Zeroconf
+from zeroconf.asyncio import AsyncServiceBrowser, AsyncZeroconf, AsyncServiceInfo
+from zeroconf import ServiceStateChange, IPVersion
 
 
 @dataclass
-class ZeroconfResponseInfo:
-    """
-    This class is used to store information about a response received from the Zeroconf protocol.
-    It contains the datagram and the address of the sender.
-    """
-
-    def __init__(self, address=None, name=None):
-        self.address = address
-        self.name = name
-
-    def __repr__(self):
-        return f"ZeroconfResponseInfo(name={self.name}, address={self.address})"
+class ZeroconfService:
+    address: str
 
 
-class MyListener(ServiceListener):
-    """
-    This class is used to store information about a response received from the Zeroconf protocol.
-    It contains the datagram and the address of the sender.
-    """
+class ZeroconfScanner:
+    def __init__(self, service_type="_lutron._tcp.local."):
+        self.service_type = service_type
+        self.found_services = [ZeroconfService]
 
-    def __init__(self):
-        self.datagrams: list = []
+    async def on_service_state_change(
+        self, zeroconf, service_type, name, state_change, **kwargs
+    ):
+        if state_change is ServiceStateChange.Added:
+            info = AsyncServiceInfo(service_type, name)
+            await info.async_request(zeroconf, timeout=2000)
+            if info.parsed_addresses():
+                self.found_services.append(
+                    ZeroconfService(
+                        address=info.parsed_addresses(version=IPVersion.V4Only)[0]
+                    )
+                )
 
-    def update_service(self, zc: Zeroconf, type_: str, name: str) -> None:
-        print(f"Service {name} updated")
+    async def scan(self, timeout=2):
+        self.found_services = []
+        async with AsyncZeroconf() as azc:
 
-    def remove_service(self, zc: Zeroconf, type_: str, name: str) -> None:
-        print(f"Service {name} removed")
+            def handler(**kwargs):
+                asyncio.create_task(self.on_service_state_change(**kwargs))
 
-    def add_service(self, zc: Zeroconf, type_: str, name: str) -> None:
-        info = zc.get_service_info(type_, name)
-        print(f"Service {name} added, service info: {info}")
-
-
-class ZeroconfDiscovery:
-    """
-    Discover Lutron devices using Zeroconf.
-    """
-
-    def __init__(self):
-        self.zeroconf = Zeroconf()
-        self.listener = MyListener()
-        self.browser = ServiceBrowser(
-            self.zeroconf, "_lutron._tcp.local.", self.listener, delay=2
-        )
-        self.discovered: list[ZeroconfResponseInfo] = []
-
-    def start(self):
-        try:
-            pass
-        finally:
-            self.zeroconf.close()
-
-        return self.discovered
+            browser = AsyncServiceBrowser(
+                azc.zeroconf, self.service_type, handlers=[handler]
+            )
+            await asyncio.sleep(timeout)
+        return self.found_services

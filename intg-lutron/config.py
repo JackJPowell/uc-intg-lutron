@@ -10,14 +10,15 @@ from dataclasses import dataclass
 from typing import Iterator
 
 from ucapi import EntityTypes
+from const import LutronLightInfo, LutronCoverInfo
 
 _LOG = logging.getLogger(__name__)
 _CFG_FILENAME = "config.json"
 
 
-def create_entity_id(device_id: str, entity_type: EntityTypes) -> str:
+def create_entity_id(device_id: str, entity_id: str, entity_type: EntityTypes) -> str:
     """Create a unique entity identifier for the given receiver and entity type."""
-    return f"{entity_type.value}.{device_id}"
+    return f"{entity_type.value}.{device_id}.{entity_id}"
 
 
 def device_from_entity_id(entity_id: str) -> str | None:
@@ -27,7 +28,17 @@ def device_from_entity_id(entity_id: str) -> str | None:
     :param entity_id: the entity identifier
     :return: the device prefix, or None if entity_id doesn't contain a dot
     """
-    return entity_id.split(".", 1)[1]
+    return entity_id.split(".", 2)[1]
+
+
+def entity_from_entity_id(entity_id: str) -> str | None:
+    """
+    Return the id prefix of an entity_id.
+
+    :param entity_id: the entity identifier
+    :return: the device prefix, or None if entity_id doesn't contain a dot
+    """
+    return entity_id.split(".", 2)[2]
 
 
 @dataclass
@@ -38,6 +49,14 @@ class LutronConfig:
     """Unique identifier of the device. (MAC Address)"""
     address: str
     """IP Address of device."""
+    name: str
+    """Name of the device."""
+    model: str
+    """Model name of the device."""
+    lights: list[LutronLightInfo] = dataclasses.field(default_factory=list)
+    """List of configured lights."""
+    covers: list[LutronCoverInfo] = dataclasses.field(default_factory=list)
+    """List of configured covers."""
 
 
 class _EnhancedJSONEncoder(json.JSONEncoder):
@@ -108,6 +127,10 @@ class Devices:
         for item in self._config:
             if item.identifier == config.identifier:
                 item.address = config.address
+                item.name = config.name
+                item.model = config.model
+                item.lights = config.lights
+                item.covers = config.covers
                 return self.store()
         return False
 
@@ -162,10 +185,28 @@ class Devices:
             for item in data:
                 # not using LutronConfig(**item) to be able to migrate
                 # old configuration files with missing attributes
+                lightinfo = []
                 config = LutronConfig(
                     item.get("identifier"),
                     item.get("address"),
+                    item.get("name"),
+                    item.get("model"),
+                    item.get("lights", []),
+                    item.get("covers", []),
                 )
+
+                for light in config.lights:
+                    lightinfo.append(
+                        LutronLightInfo(
+                            device_id=light["device_id"],
+                            current_state=light["current_state"],
+                            type=light["type"],
+                            name=light["name"].replace("_", " "),
+                            model=light["model"],
+                        )
+                    )
+                config.lights = lightinfo
+
                 self._config.append(config)
             return True
         except OSError as err:

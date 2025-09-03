@@ -11,14 +11,18 @@ import logging
 import os
 import sys
 from typing import Any
-
 import config
 import setup
 import ucapi
 import ucapi.api as uc
-from ucapi import light
+from ucapi import EntityTypes
 from light import LutronLight
-from config import LutronConfig, device_from_entity_id
+from config import (
+    LutronConfig,
+    device_from_entity_id,
+    entity_from_entity_id,
+    create_entity_id,
+)
 import bridge
 
 _LOG = logging.getLogger("driver")  # avoid having __main__ in log messages
@@ -37,9 +41,7 @@ _configured_devices: dict[str, bridge.SmartHub] = {}
 async def on_r2_connect_cmd() -> None:
     """Connect all configured devices when the Remote Two/3 sends the connect command."""
     _LOG.debug("Client connect command: connecting device(s)")
-    await api.set_device_state(
-        ucapi.DeviceStates.CONNECTED
-    )  # just to make sure the device state is set
+    await api.set_device_state(ucapi.DeviceStates.CONNECTED)
     for device in _configured_devices.values():
         await device.connect()
 
@@ -49,7 +51,7 @@ async def on_r2_disconnect_cmd():
     """Disconnect all configured devices when the Remote Two/3 sends the disconnect command."""
     _LOG.debug("Client disconnect command: disconnecting device(s)")
     for device in _configured_devices.values():
-        await device.disconnect(continue_polling=False)
+        await device.disconnect()
 
 
 @api.listens_to(ucapi.Events.ENTER_STANDBY)
@@ -61,7 +63,7 @@ async def on_r2_enter_standby() -> None:
     """
     _LOG.debug("Enter standby event: disconnecting device(s)")
     for device in _configured_devices.values():
-        await device.disconnect(continue_polling=False)
+        await device.disconnect()
 
 
 @api.listens_to(ucapi.Events.EXIT_STANDBY)
@@ -91,26 +93,25 @@ async def on_subscribe_entities(entity_ids: list[str]) -> None:
             # this is a device entity, so we need to check if it is already configured
             if device_id in _configured_devices:
                 device = _configured_devices[device_id]
-                _LOG.info("Add '%s' to configured devices and connect", device.name)
-                _LOG.debug("Device State: %s", device.state)
-                if device.state is None:
-                    state = light.States.UNAVAILABLE
-                else:
-                    state = device.state
-                api.configured_entities.update_attributes(
-                    entity_id, {light.Attributes.STATE: state}
-                )
+                # if not device.is_connected:
                 # await device.connect()
-                continue
+                if device.is_connected:
+                    entity = next(
+                        (
+                            light
+                            for light in device.lights
+                            if light.device_id == entity_from_entity_id(entity_id)
+                        ),
+                        None,
+                    )
 
-        device = config.devices.get(device_id)
-        if device:
-            _add_configured_device(device)
-        else:
-            _LOG.error(
-                "Failed to subscribe entity %s: no Lutron device instance found",
-                entity_id,
-            )
+                    if entity is not None:
+                        update = {}
+                        update["state"] = "ON" if entity.current_state > 0 else "OFF"
+                        update["brightness"] = int(entity.current_state * 255 / 100)
+                        api.configured_entities.update_attributes(entity_id, update)
+                    # await device.connect()
+                continue
 
 
 @api.listens_to(ucapi.Events.UNSUBSCRIBE_ENTITIES)
@@ -127,31 +128,10 @@ async def on_unsubscribe_entities(entity_ids: list[str]) -> None:
 async def on_device_connected(device_id: str):
     """Handle device connection."""
     _LOG.debug("Lutron device connected: %s", device_id)
-    state = light.States.UNKNOWN
-    if device_id not in _configured_devices:
+    if str(device_id) not in _configured_devices:
         _LOG.warning("Lutron device %s is not configured", device_id)
         return
 
-    for entity_id in _entities_from_device_id(device_id):
-        configured_entity = api.configured_entities.get(entity_id)
-        if configured_entity is None:
-            _LOG.debug(
-                "Device connected : entity %s is not configured, ignoring it", entity_id
-            )
-            continue
-
-        device = _configured_devices[device_id]
-        state = device.state
-
-        if configured_entity.entity_type == ucapi.EntityTypes.LIGHT:
-            api.configured_entities.update_attributes(
-                entity_id,
-                {ucapi.light.Attributes.STATE: state},
-            )
-        elif configured_entity.entity_type == ucapi.EntityTypes.COVER:
-            api.configured_entities.update_attributes(
-                entity_id, {ucapi.cover.Attributes.STATE: state}
-            )
     await api.set_device_state(ucapi.DeviceStates.CONNECTED)
 
 
@@ -208,25 +188,28 @@ async def on_device_update(entity_id: str, update: dict[str, Any] | None) -> Non
     :param update: dictionary containing the updated properties or None
     """
     target_entity = None
-    for identifier in _entities_from_device_id(entity_id):
-        attributes = {}
-        configured_entity = api.available_entities.get(identifier)
-        if configured_entity is None:
-            return
+    attributes = {}
+    configured_entity = api.available_entities.get(entity_id)
+    if configured_entity is None:
+        return
 
-        if isinstance(configured_entity, LutronLight):
-            target_entity = api.available_entities.get(identifier)
-        # elif isinstance(configured_entity, LutronCover):
-        #     target_entity = api.available_entities.get(identifier)
+    if isinstance(configured_entity, LutronLight):
+        target_entity = api.available_entities.get(entity_id)
 
         if "state" in update:
             attributes[ucapi.light.Attributes.STATE] = update["state"]
 
-        if attributes:
-            if api.configured_entities.contains(identifier):
-                api.configured_entities.update_attributes(identifier, attributes)
-            else:
-                api.available_entities.update_attributes(identifier, attributes)
+        if "brightness" in update:
+            attributes[ucapi.light.Attributes.BRIGHTNESS] = update["brightness"]
+
+    # elif isinstance(configured_entity, LutronCover):
+    #     target_entity = api.available_entities.get(identifier)
+
+    if attributes:
+        if api.configured_entities.contains(entity_id):
+            api.configured_entities.update_attributes(entity_id, attributes)
+        else:
+            api.available_entities.update_attributes(entity_id, attributes)
 
 
 def _add_configured_device(device_config: LutronConfig, connect: bool = False) -> None:
@@ -236,12 +219,11 @@ def _add_configured_device(device_config: LutronConfig, connect: bool = False) -
             "DISCONNECTING: Existing config device updated, update the running device %s",
             device_config,
         )
-        device = _configured_devices[device_config.identifier]
+        device = _configured_devices[str(device_config.identifier)]
     else:
         _LOG.debug(
-            "Adding new device: %s (%s) %s",
+            "Adding new device: %s (%s)",
             device_config.identifier,
-            device_config.name,
             device_config.address,
         )
         device = bridge.SmartHub(device_config, loop=_LOOP)
@@ -250,7 +232,7 @@ def _add_configured_device(device_config: LutronConfig, connect: bool = False) -
         device.events.on(bridge.EVENTS.ERROR, on_device_connection_error)
         device.events.on(bridge.EVENTS.UPDATE, on_device_update)
 
-        _configured_devices[device.identifier] = device
+        _configured_devices[str(device.identifier)] = device
 
     async def start_connection():
         await device.connect()
@@ -271,12 +253,14 @@ def _register_available_entities(
     :param name: Friendly name
     :return: True if added, False if the device was already in storage.
     """
-    _LOG.info("_register_available_entities for %s", device_config.name)
-    # get devices from bridge by domain and create entities
+    _LOG.info("_register_available_entities for %s", device_config.identifier)
     entities = []
+    for entity in device_config.lights:
+        entities.append(LutronLight(device_config, device, entity))
+
     for entity in entities:
-        if api.available_entities.contains(entity.id):
-            api.available_entities.remove(entity.id)
+        if api.available_entities.contains(entity):
+            api.available_entities.remove(entity)
         api.available_entities.add(entity)
     return True
 
@@ -288,8 +272,15 @@ def _entities_from_device_id(device_id: str) -> list[str]:
     :param device_id: the device identifier
     :return: list of entity identifiers
     """
-    # store a list of entities from device and return
-    return [f"media_player.{device_id}", f"remote.{device_id}"]
+    # get from config
+    lights = []
+    device = config.devices.get(device_id)
+    if device:
+        return [
+            create_entity_id(device.identifier, light.device_id, EntityTypes.LIGHT)
+            for light in device.lights
+        ]
+    return lights
 
 
 def on_device_added(device: LutronConfig) -> None:
@@ -340,7 +331,7 @@ async def main():
     # await config.devices.migrate()
 
     for device_config in config.devices.all():
-        _add_configured_device(device_config)
+        _add_configured_device(device_config, True)
 
     await api.init("driver.json", setup.driver_setup_handler)
 
