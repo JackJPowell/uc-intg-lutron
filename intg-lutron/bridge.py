@@ -63,7 +63,10 @@ class SmartHub:
         self._is_connected: bool = False
         self._config: LutronConfig | None = config
         self._lutron_smart_hub: Smartbridge = Smartbridge.create_tls(
-            self._config.address, "caseta.key", "caseta.crt", "caseta-bridge.crt"
+            self._config.address,
+            "./data/caseta.key",
+            "./data/caseta.crt",
+            "./data/caseta-bridge.crt",
         )
         self._connection_attempts: int = 0
         self._state: PowerState = PowerState.OFF

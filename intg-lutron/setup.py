@@ -365,11 +365,11 @@ async def _handle_pairing(
 ) -> RequestUserInput | SetupError:
     ip = msg.input_values["ip"]
     data = await async_pair(ip)
-    with open("caseta-bridge.crt", "w") as cacert:
+    with open("./data/caseta-bridge.crt", "w") as cacert:
         cacert.write(data["ca"])
-    with open("caseta.crt", "w") as cert:
+    with open("./data/caseta.crt", "w") as cert:
         cert.write(data["cert"])
-    with open("caseta.key", "w") as key:
+    with open("./data/caseta.key", "w") as key:
         key.write(data["key"])
     msg.input_values["paired"] = "true"
 
@@ -403,7 +403,7 @@ async def _handle_creation(
 
         try:
             lutron_smart_hub: Smartbridge = Smartbridge.create_tls(
-                ip, "caseta.key", "caseta.crt", "caseta-bridge.crt"
+                ip, "./data/caseta.key", "./data/caseta.crt", "./data/caseta-bridge.crt"
             )
             try:
                 await lutron_smart_hub.connect()
