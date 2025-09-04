@@ -8,6 +8,8 @@ import logging
 from dataclasses import dataclass
 from asyncio import AbstractEventLoop
 from enum import StrEnum, IntEnum
+import os
+import sys
 from typing import Any, ParamSpec, TypeVar
 
 from pylutron_caseta.smartbridge import Smartbridge
@@ -58,15 +60,19 @@ class SmartHub:
         self, config: LutronConfig, loop: AbstractEventLoop | None = None
     ) -> None:
         """Create instance."""
+        if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+            path = os.environ["UC_DATA_HOME"]
+        else:
+            path = "./data"
         self._loop: AbstractEventLoop = loop or asyncio.get_running_loop()
         self.events = AsyncIOEventEmitter(self._loop)
         self._is_connected: bool = False
         self._config: LutronConfig | None = config
         self._lutron_smart_hub: Smartbridge = Smartbridge.create_tls(
             self._config.address,
-            "./data/caseta.key",
-            "./data/caseta.crt",
-            "./data/caseta-bridge.crt",
+            f"{path}/caseta.key",
+            f"{path}/caseta.crt",
+            f"{path}/caseta-bridge.crt",
         )
         self._connection_attempts: int = 0
         self._state: PowerState = PowerState.OFF

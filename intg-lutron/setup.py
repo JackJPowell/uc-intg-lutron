@@ -6,6 +6,8 @@ import asyncio
 import logging
 from enum import IntEnum
 from ipaddress import ip_address
+import os
+import sys
 
 import config
 from config import LutronConfig
@@ -365,11 +367,11 @@ async def _handle_pairing(
 ) -> RequestUserInput | SetupError:
     ip = msg.input_values["ip"]
     data = await async_pair(ip)
-    with open("./data/caseta-bridge.crt", "w") as cacert:
+    with open(f"{get_path()}/caseta-bridge.crt", "w") as cacert:
         cacert.write(data["ca"])
-    with open("./data/caseta.crt", "w") as cert:
+    with open(f"{get_path()}/caseta.crt", "w") as cert:
         cert.write(data["cert"])
-    with open("./data/caseta.key", "w") as key:
+    with open(f"{get_path()}/caseta.key", "w") as key:
         key.write(data["key"])
     msg.input_values["paired"] = "true"
 
@@ -403,7 +405,10 @@ async def _handle_creation(
 
         try:
             lutron_smart_hub: Smartbridge = Smartbridge.create_tls(
-                ip, "./data/caseta.key", "./data/caseta.crt", "./data/caseta-bridge.crt"
+                ip,
+                f"{get_path()}/caseta.key",
+                f"{get_path()}/caseta.crt",
+                f"{get_path()}/caseta-bridge.crt",
             )
             try:
                 await lutron_smart_hub.connect()
@@ -446,3 +451,9 @@ async def _handle_creation(
         return SetupError(IntegrationSetupError.OTHER)
     _LOG.info("Setup complete")
     return SetupComplete()
+
+
+def get_path() -> str:
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        return os.environ["UC_DATA_HOME"]
+    return "./data"
