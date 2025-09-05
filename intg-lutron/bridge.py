@@ -97,17 +97,17 @@ class SmartHub:
     @property
     def log_id(self) -> str:
         """Return a log identifier."""
-        return self._config.identifier
+        return self.device_config.identifier
 
     @property
     def name(self) -> str:
         """Return the device name."""
-        return self._config.name
+        return self.device_config.name
 
     @property
     def address(self) -> str | None:
         """Return the optional device address."""
-        return self._config.address
+        return self.device_config.address
 
     @property
     def state(self) -> PowerState | None:
@@ -147,22 +147,25 @@ class SmartHub:
         """Return if the device is connected."""
         return self._is_connected
 
-    async def connect(self) -> None:
+    async def connect(self) -> bool:
         """Establish connection to the Lutron device."""
         if self._lutron_smart_hub.logged_in:
-            return
+            return True
 
         _LOG.debug("[%s] Connecting to device", self.log_id)
         self.events.emit(EVENTS.CONNECTING, self.device_config.identifier)
-        await self._connect_setup()
 
-    async def _connect_setup(self) -> None:
         try:
-            await self._connect()
-        except asyncio.CancelledError:
-            pass
+            await self._lutron_smart_hub.connect()
+            self._is_connected = True
+            self._state = PowerState.ON
+            _LOG.info("[%s] Connected to device", self.log_id)
+        except asyncio.CancelledError as err:
+            _LOG.error("[%s] Connection cancelled: %s", self.log_id, err)
+            return False
         except Exception as err:  # pylint: disable=broad-exception-caught
             _LOG.error("[%s] Could not connect: %s", self.log_id, err)
+            return False
         finally:
             _LOG.debug("[%s] Connect setup finished", self.log_id)
 
@@ -173,21 +176,7 @@ class SmartHub:
         for light in self._lights:
             self._lutron_smart_hub.add_subscriber(light.device_id, self._update_lights)
         self._update_scenes()
-
-    async def _connect(self) -> None:
-        """Connect to the device."""
-        _LOG.debug(
-            "[%s] Connecting to TVWS device at IP address: %s",
-            self.log_id,
-            self.address,
-        )
-        try:
-            await self._lutron_smart_hub.connect()
-            self._is_connected = True
-            self._state = PowerState.ON
-            _LOG.info("[%s] Connected to device", self.log_id)
-        except Exception as err:  # pylint: disable=broad-exception-caught
-            _LOG.error("[%s] Connection error: %s", self.log_id, err)
+        return True
 
     async def disconnect(self) -> None:
         """Disconnect from the device."""

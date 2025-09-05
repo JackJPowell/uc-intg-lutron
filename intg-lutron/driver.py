@@ -39,14 +39,6 @@ api = uc.IntegrationAPI(_LOOP)
 _configured_devices: dict[str, bridge.SmartHub] = {}
 
 
-@api.listens_to(ucapi.Events.CONNECT)
-async def on_r2_connect_cmd() -> None:
-    """Connect all configured devices when the Remote Two/3 sends the connect command."""
-    _LOG.debug("Client connect command: connecting device(s)")
-    for device in _configured_devices.values():
-        await device.connect()
-
-
 @api.listens_to(ucapi.Events.DISCONNECT)
 async def on_r2_disconnect_cmd():
     """Disconnect all configured devices when the Remote Two/3 sends the disconnect command."""
@@ -67,18 +59,6 @@ async def on_r2_enter_standby() -> None:
         await device.disconnect()
 
 
-@api.listens_to(ucapi.Events.EXIT_STANDBY)
-async def on_r2_exit_standby() -> None:
-    """
-    Exit standby notification from Remote Two/3.
-
-    Connect all Lutron device instances.
-    """
-    _LOG.debug("Exit standby event: connecting device(s)")
-    for device in _configured_devices.values():
-        await device.connect()
-
-
 @api.listens_to(ucapi.Events.SUBSCRIBE_ENTITIES)
 async def on_subscribe_entities(entity_ids: list[str]) -> None:
     """
@@ -88,52 +68,66 @@ async def on_subscribe_entities(entity_ids: list[str]) -> None:
     """
     _LOG.debug("Subscribe entities event: %s", entity_ids)
 
+    if entity_ids is not None and len(entity_ids) > 0:
+        device_id = device_from_entity_id(entity_ids[0])
+        if device_id not in _configured_devices:
+            device = config.devices.get(device_id)
+            if device:
+                _add_configured_device(device)
+            else:
+                _LOG.error(
+                    "Failed to subscribe entity %s: no instance found", device_id
+                )
+                return
+        device = _configured_devices[device_id]
+        if not device.is_connected:
+            attempt = 0
+            while attempt := attempt + 1 < 4:
+                _LOG.debug(
+                    "Device %s not connected, attempting to connect (%d/3)",
+                    device_id,
+                    attempt,
+                )
+                if not await device.connect():
+                    await device.disconnect()
+                    await asyncio.sleep(0.5)
+                else:
+                    break
+
     for entity_id in entity_ids:
         device_id = device_from_entity_id(entity_id)
-        if device_id in _configured_devices:
-            device = _configured_devices[device_id]
-            if device.is_connected:
-                match type_from_entity_id(entity_id):
-                    case EntityTypes.BUTTON.value:
-                        entity = next(
-                            (
-                                scene
-                                for scene in device.scenes
-                                if scene.scene_id == entity_from_entity_id(entity_id)
-                            ),
-                            None,
-                        )
+        device = _configured_devices[device_id]
+        match type_from_entity_id(entity_id):
+            case EntityTypes.BUTTON.value:
+                entity = next(
+                    (
+                        scene
+                        for scene in device.scenes
+                        if scene.scene_id == entity_from_entity_id(entity_id)
+                    ),
+                    None,
+                )
 
-                        if entity is not None:
-                            update = {}
-                            update["state"] = "AVAILABLE"
-                            api.configured_entities.update_attributes(entity_id, update)
-                    case EntityTypes.LIGHT.value:
-                        entity = next(
-                            (
-                                light
-                                for light in device.lights
-                                if light.device_id == entity_from_entity_id(entity_id)
-                            ),
-                            None,
-                        )
+                if entity is not None:
+                    update = {}
+                    update["state"] = "AVAILABLE"
+                    api.configured_entities.update_attributes(entity_id, update)
+            case EntityTypes.LIGHT.value:
+                entity = next(
+                    (
+                        light
+                        for light in device.lights
+                        if light.device_id == entity_from_entity_id(entity_id)
+                    ),
+                    None,
+                )
 
-                        if entity is not None:
-                            update = {}
-                            update["state"] = (
-                                "ON" if entity.current_state > 0 else "OFF"
-                            )
-                            update["brightness"] = int(entity.current_state * 255 / 100)
-                            api.configured_entities.update_attributes(entity_id, update)
-            continue
-        device = config.devices.get(device_id)
-        if device:
-            _add_configured_device(device)
-        else:
-            _LOG.error(
-                "Failed to subscribe entity %s: no Lutron Caseta instance found",
-                entity_id,
-            )
+                if entity is not None:
+                    update = {}
+                    update["state"] = "ON" if entity.current_state > 0 else "OFF"
+                    update["brightness"] = int(entity.current_state * 255 / 100)
+                    api.configured_entities.update_attributes(entity_id, update)
+        continue
 
 
 @api.listens_to(ucapi.Events.UNSUBSCRIBE_ENTITIES)
@@ -351,14 +345,14 @@ def on_device_removed(device: LutronConfig | None) -> None:
 
 def get_configured_device(device_id: str) -> bridge.SmartHub | None:
     """Return the configured device instance for the given device identifier."""
-    return _configured_devices.get(device_id)
+    return _configured_devices.get(str(device_id))
 
 
 async def main():
     """Start the Remote Two/3 integration driver."""
     logging.basicConfig()
 
-    level = os.getenv("UC_LOG_LEVEL", "INFO").upper()
+    level = os.getenv("UC_LOG_LEVEL", "DEBUG").upper()
     logging.getLogger("bridge").setLevel(level)
     logging.getLogger("driver").setLevel(level)
     logging.getLogger("config").setLevel(level)
