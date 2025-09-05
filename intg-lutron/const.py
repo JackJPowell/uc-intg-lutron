@@ -21,3 +21,9 @@ class LutronCoverInfo:
     type: str
     name: str
     model: str
+
+
+@dataclass
+class LutronSceneInfo:
+    scene_id: str
+    name: str

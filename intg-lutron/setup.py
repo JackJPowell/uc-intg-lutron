@@ -14,7 +14,7 @@ from config import LutronConfig
 from discover import ZeroconfScanner
 from pylutron_caseta.smartbridge import Smartbridge
 from pylutron_caseta.pairing import async_pair
-from bridge import LutronLightInfo
+from const import LutronLightInfo, LutronSceneInfo
 from ucapi import (
     AbortDriverSetup,
     DriverSetupRequest,
@@ -166,11 +166,8 @@ async def _handle_configuration_mode(
             return await _handle_discovery()
         case "update":
             choice = int(msg.input_values["choice"])
-            if not config.devices.remove(choice):
-                _LOG.warning("Could not update device from configuration: %s", choice)
-                return SetupError(error_type=IntegrationSetupError.OTHER)
-            _setup_step = SetupSteps.DISCOVER
-            return await _handle_discovery()
+            msg.input_values["ip"] = config.devices.get(choice).address
+            return await _handle_creation(msg)
         case "remove":
             choice = int(msg.input_values["choice"])
             if not config.devices.remove(choice):
@@ -392,6 +389,7 @@ async def _handle_creation(
 
     ip = msg.input_values["ip"]
     lightinfo = []
+    sceneinfo = []
 
     if ip != "":
         # Check if input is a valid ipv4 or ipv6 address
@@ -413,12 +411,12 @@ async def _handle_creation(
             try:
                 await lutron_smart_hub.connect()
                 lights = lutron_smart_hub.get_devices_by_domain("light")
+                scenes = lutron_smart_hub.get_scenes()
                 devices = lutron_smart_hub.get_devices()
             finally:
                 await lutron_smart_hub.close()
             _LOG.debug("Lutron Smart Hub info: %s", lights)
 
-            # write a comprehension that pulls out the device_id that is equal to 1
             smarthub = devices["1"]
 
             for light in lights:
@@ -432,6 +430,14 @@ async def _handle_creation(
                     )
                 )
 
+            for scene in scenes.values():
+                sceneinfo.append(
+                    LutronSceneInfo(
+                        scene_id=scene["scene_id"],
+                        name=scene["name"],
+                    )
+                )
+
             device = LutronConfig(
                 identifier=smarthub["serial"],
                 address=ip,
@@ -439,6 +445,7 @@ async def _handle_creation(
                 model=smarthub["model"],
                 lights=lightinfo,
                 covers=[],
+                scenes=sceneinfo,
             )
 
             config.devices.add_or_update(device)
