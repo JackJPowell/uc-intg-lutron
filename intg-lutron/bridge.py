@@ -182,7 +182,6 @@ class SmartHub:
             self.address,
         )
         try:
-            # await self._lutron_smart_hub.close()
             await self._lutron_smart_hub.connect()
             self._is_connected = True
             self._state = PowerState.ON
