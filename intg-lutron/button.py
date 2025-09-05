@@ -26,14 +26,16 @@ _configured_devices: dict[str, bridge.SmartHub] = {}
 class LutronButton(Button):
     """Representation of a Lutron Button entity."""
 
-    def __init__(self, config: LutronConfig, scene_info: LutronSceneInfo):
+    def __init__(
+        self, config: LutronConfig, scene_info: LutronSceneInfo, get_device: Any = None
+    ):
         """Initialize the class."""
-        # self._device = device
         _LOG.debug("Lutron Button init")
         entity_id = create_entity_id(
             config.identifier, scene_info.scene_id, EntityTypes.BUTTON
         )
         self.config = config
+        self.get_device = get_device
 
         super().__init__(
             entity_id,
@@ -57,7 +59,7 @@ class LutronButton(Button):
         _LOG.info(
             "Got %s command request: %s %s", entity.id, cmd_id, params if params else ""
         )
-        device = _configured_devices.get(self.config.identifier)
+        device = self.get_device(self.config.identifier)
 
         try:
             match cmd_id:

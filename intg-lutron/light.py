@@ -25,6 +25,7 @@ class LutronLight(Light):
         self,
         config_device: LutronConfig,
         light_info: LutronLightInfo,
+        get_device: Any = None,
     ):
         """Initialize the class."""
         _LOG.debug("Lutron Light init")
@@ -34,6 +35,7 @@ class LutronLight(Light):
             entity_type=EntityTypes.LIGHT,
         )
         self.config = config_device
+        self.get_device = get_device
         self.features = [
             light.Features.ON_OFF,
             light.Features.TOGGLE,
@@ -72,7 +74,7 @@ class LutronLight(Light):
         _LOG.info(
             "Got %s command request: %s %s", entity.id, cmd_id, params if params else ""
         )
-        device = _configured_devices.get(self.config.identifier)
+        device = self.get_device(self.config.identifier)
 
         try:
             identifier = entity.id.split(".", 2)[2]

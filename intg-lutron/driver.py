@@ -288,10 +288,10 @@ def _register_available_entities(device_config: LutronConfig) -> bool:
     _LOG.info("_register_available_entities for %s", device_config.identifier)
     entities = []
     for scene in device_config.scenes:
-        entities.append(LutronButton(device_config, scene))
+        entities.append(LutronButton(device_config, scene, get_configured_device))
 
     for entity in device_config.lights:
-        entities.append(LutronLight(device_config, entity))
+        entities.append(LutronLight(device_config, entity, get_configured_device))
 
     for entity in entities:
         if api.available_entities.contains(entity):
@@ -349,11 +349,16 @@ def on_device_removed(device: LutronConfig | None) -> None:
             api.available_entities.remove(entity_id)
 
 
+def get_configured_device(device_id: str) -> bridge.SmartHub | None:
+    """Return the configured device instance for the given device identifier."""
+    return _configured_devices.get(device_id)
+
+
 async def main():
     """Start the Remote Two/3 integration driver."""
     logging.basicConfig()
 
-    level = os.getenv("UC_LOG_LEVEL", "DEBUG").upper()
+    level = os.getenv("UC_LOG_LEVEL", "INFO").upper()
     logging.getLogger("bridge").setLevel(level)
     logging.getLogger("driver").setLevel(level)
     logging.getLogger("config").setLevel(level)
