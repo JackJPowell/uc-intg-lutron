@@ -311,11 +311,11 @@ def _entities_from_device_id(device_id: str) -> list[str]:
     entities = []
     device = config.devices.get(device_id)
     if device:
-        entities.append(
+        entities.extend(
             create_entity_id(device.identifier, scene.scene_id, EntityTypes.BUTTON)
             for scene in device.scenes
         )
-        entities.append(
+        entities.extend(
             create_entity_id(device.identifier, light.device_id, EntityTypes.LIGHT)
             for light in device.lights
         )
