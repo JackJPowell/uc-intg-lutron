@@ -17,7 +17,7 @@ from pyee.asyncio import AsyncIOEventEmitter
 from ucapi.media_player import Attributes as MediaAttr
 from ucapi import EntityTypes
 from config import LutronConfig, create_entity_id
-from const import LutronLightInfo
+from const import LutronLightInfo, LutronSceneInfo
 
 _LOG = logging.getLogger(__name__)
 
@@ -79,6 +79,8 @@ class SmartHub:
         self._features: dict = {}
         self._lights: list = [LutronLightInfo]
         self._covers: list = [LutronCoverInfo]
+        self._scenes: list = [LutronSceneInfo]
+        self._scene: LutronSceneInfo | None = None
 
     @property
     def device_config(self) -> LutronConfig:
@@ -131,17 +133,27 @@ class SmartHub:
         return self._covers
 
     @property
+    def scenes(self) -> list[Any]:
+        """Return the list of scene entities."""
+        return self._scenes
+
+    @property
+    def scene(self) -> str | None:
+        """Return the current scene."""
+        return self._scene.name if self._scene else None
+
+    @property
     def is_connected(self) -> bool:
         """Return if the device is connected."""
         return self._is_connected
 
     async def connect(self) -> None:
         """Establish connection to the Lutron device."""
-        if self.is_connected:
+        if self._lutron_smart_hub.logged_in:
             return
 
         _LOG.debug("[%s] Connecting to device", self.log_id)
-        self.events.emit(EVENTS.CONNECTING, self._config.identifier)
+        self.events.emit(EVENTS.CONNECTING, self.device_config.identifier)
         await self._connect_setup()
 
     async def _connect_setup(self) -> None:
@@ -154,14 +166,13 @@ class SmartHub:
         finally:
             _LOG.debug("[%s] Connect setup finished", self.log_id)
 
-        self.events.emit(EVENTS.CONNECTED, self._config.identifier)
+        self.events.emit(EVENTS.CONNECTED, self.device_config.identifier)
         _LOG.debug("[%s] Connected", self.log_id)
 
-        self._update_attributes()
+        self._update_lights()
         for light in self._lights:
-            self._lutron_smart_hub.add_subscriber(
-                light.device_id, self._update_attributes
-            )
+            self._lutron_smart_hub.add_subscriber(light.device_id, self._update_lights)
+        self._update_scenes()
 
     async def _connect(self) -> None:
         """Connect to the device."""
@@ -171,14 +182,13 @@ class SmartHub:
             self.address,
         )
         try:
+            # await self._lutron_smart_hub.close()
             await self._lutron_smart_hub.connect()
-            self._lights = self.get_lights()
             self._is_connected = True
             self._state = PowerState.ON
             _LOG.info("[%s] Connected to device", self.log_id)
-        except Exception as err:
+        except Exception as err:  # pylint: disable=broad-exception-caught
             _LOG.error("[%s] Connection error: %s", self.log_id, err)
-            self._is_connected = False
 
     async def disconnect(self) -> None:
         """Disconnect from the device."""
@@ -186,9 +196,9 @@ class SmartHub:
         await self._lutron_smart_hub.close()
         self._is_connected = False
         self._state = PowerState.OFF
-        self.events.emit(EVENTS.DISCONNECTED, self._config.identifier)
+        self.events.emit(EVENTS.DISCONNECTED, self.device_config.identifier)
 
-    def _update_attributes(self) -> None:
+    def _update_lights(self) -> None:
         update = {}
         try:
             self._lights = self.get_lights()
@@ -211,6 +221,27 @@ class SmartHub:
         except Exception:  # pylint: disable=broad-exception-caught
             _LOG.exception("[%s] App list: protocol error", self.log_id)
 
+    def _update_scenes(self) -> None:
+        update = {}
+        update["state"] = self.state
+
+        try:
+            self._scenes = self.get_scenes()
+            update["source_list"] = [scene.name for scene in self._scenes]
+
+            self.events.emit(
+                EVENTS.UPDATE,
+                create_entity_id(
+                    self.device_config.identifier,
+                    "0",
+                    EntityTypes.MEDIA_PLAYER,
+                ),
+                update,
+            )
+
+        except Exception:  # pylint: disable=broad-exception-caught
+            _LOG.exception("[%s] App list: protocol error", self.log_id)
+
     def get_lights(self) -> list[Any]:
         """Return the list of light entities."""
         lights = self._lutron_smart_hub.get_devices_by_domain("light")
@@ -227,6 +258,44 @@ class SmartHub:
             )
         return light_list
 
+    def get_scenes(self) -> list[Any]:
+        """Return the list of scene entities."""
+        scenes = self._lutron_smart_hub.get_scenes()
+        scene_list = []
+        for scene in scenes.values():
+            scene_list.append(
+                LutronSceneInfo(
+                    scene_id=scene.get("scene_id"),
+                    name=scene.get("name"),
+                )
+            )
+        return scene_list
+
+    async def activate_scene(self, scene_id: str) -> None:
+        """Activate a scene."""
+        scene: LutronSceneInfo = next(
+            (s for s in self.scenes if s.scene_id == scene_id), None
+        )
+        if scene is None:
+            _LOG.error("[%s] Scene %s not found", self.log_id, scene_id)
+            return
+        try:
+            await self._lutron_smart_hub.activate_scene(scene.scene_id)
+            self._scene = scene
+            self.events.emit(
+                EVENTS.UPDATE,
+                create_entity_id(
+                    self.device_config.identifier,
+                    "0",
+                    EntityTypes.MEDIA_PLAYER,
+                ),
+                {"source": scene.name},
+            )
+        except Exception as err:  # pylint: disable=broad-exception-caught
+            _LOG.error(
+                "[%s] Error activating scene %s: %s", self.log_id, scene.name, err
+            )
+
     async def turn_on_light(self, light_id: str, brightness: int = None) -> None:
         """Turn on a light with a specific brightness."""
         try:
@@ -236,7 +305,11 @@ class SmartHub:
                 await self._lutron_smart_hub.turn_on(light_id)
                 self.events.emit(
                     EVENTS.UPDATE,
-                    self._config.identifier,
+                    create_entity_id(
+                        self._config.identifier,
+                        light_id,
+                        EntityTypes.LIGHT,
+                    ),
                     {"state": "ON", "brightness": brightness},
                 )
         except Exception as err:  # pylint: disable=broad-exception-caught
@@ -248,7 +321,11 @@ class SmartHub:
             await self._lutron_smart_hub.turn_off(light_id)
             self.events.emit(
                 EVENTS.UPDATE,
-                self._config.identifier,
+                create_entity_id(
+                    self._config.identifier,
+                    light_id,
+                    EntityTypes.LIGHT,
+                ),
                 {"state": "OFF", "brightness": 0},
             )
         except Exception as err:  # pylint: disable=broad-exception-caught
@@ -266,7 +343,11 @@ class SmartHub:
                 await self._lutron_smart_hub.turn_on(light_id)
             self.events.emit(
                 EVENTS.UPDATE,
-                self._config.identifier,
+                create_entity_id(
+                    self._config.identifier,
+                    light_id,
+                    EntityTypes.LIGHT,
+                ),
                 {
                     "state": "ON" if not is_on else "OFF",
                     "brightness": 100 if not is_on else 0,

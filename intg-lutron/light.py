@@ -11,9 +11,11 @@ import ucapi
 from config import LutronConfig, create_entity_id
 from ucapi import EntityTypes, light
 from ucapi.light import Attributes, Light, States
-from bridge import SmartHub, LutronLightInfo
+from bridge import LutronLightInfo
+import bridge
 
 _LOG = logging.getLogger(__name__)
+_configured_devices: dict[str, bridge.SmartHub] = {}
 
 
 class LutronLight(Light):
@@ -22,11 +24,9 @@ class LutronLight(Light):
     def __init__(
         self,
         config_device: LutronConfig,
-        bridge: SmartHub,
         light_info: LutronLightInfo,
     ):
         """Initialize the class."""
-        self._bridge = bridge
         _LOG.debug("Lutron Light init")
         entity_id = create_entity_id(
             device_id=config_device.identifier,
@@ -72,6 +72,7 @@ class LutronLight(Light):
         _LOG.info(
             "Got %s command request: %s %s", entity.id, cmd_id, params if params else ""
         )
+        device = _configured_devices.get(self.config.identifier)
 
         try:
             identifier = entity.id.split(".", 2)[2]
@@ -88,15 +89,15 @@ class LutronLight(Light):
                             )
                             return ucapi.StatusCodes.BAD_REQUEST
 
-                    res = await self._bridge.turn_on_light(
+                    res = await device.turn_on_light(
                         f"{identifier}", brightness=brightness
                     )
                 case light.Commands.OFF:
                     _LOG.debug("Sending OFF command to Light")
-                    res = await self._bridge.turn_off_light(f"{identifier}")
+                    res = await device.turn_off_light(f"{identifier}")
                 case light.Commands.TOGGLE:
                     _LOG.debug("Sending TOGGLE command to Light")
-                    res = await self._bridge.toggle_light(f"{identifier}")
+                    res = await device.toggle_light(f"{identifier}")
 
         except Exception as ex:  # pylint: disable=broad-except
             _LOG.error("Error executing command %s: %s", cmd_id, ex)
