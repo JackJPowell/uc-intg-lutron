@@ -10,13 +10,16 @@ Using [uc-integration-api](https://github.com/aitatoi/integration-python-library
 
 This integration allows you to control your Lutron Caseta lights from your Unfolded Circle Remote.
 
-## Light
+## Lights
 Supported attributes:
 - State
 
 Supported commands:
 - Turn on & off
 - Brightness
+
+## Scenes
+- Buttons that allow you to trigger Lutron Scenes
 
 ## Usage
 The simpliest way to get started is by uploading this integration to your unfolded circle remote. You'll find the option on the integration tab in the web configurator. Simply upload the .tar.gz file attached to the release. This option is nice and doesn't require a separate docker instance to host the package. However, upgrading is a fully manual process. To help with this, a docker image is also provided that allows you to run it externally from the remote and easily upgrade when new versions are released. 
