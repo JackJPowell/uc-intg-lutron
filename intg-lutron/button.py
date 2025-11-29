@@ -6,36 +6,33 @@ Button entity functions.
 
 import logging
 from typing import Any
-import asyncio
+
 import ucapi
-import ucapi.api as uc
-
-import bridge
-from config import LutronConfig, create_entity_id, entity_from_entity_id
-from ucapi import Button, button, EntityTypes
-from const import LutronSceneInfo
-
-_LOOP = asyncio.new_event_loop()
-asyncio.set_event_loop(_LOOP)
+from bridge import SmartHub
+from const import LutronDevice, LutronSceneInfo
+from ucapi import Button, EntityTypes, button
+from ucapi_framework import create_entity_id
 
 _LOG = logging.getLogger(__name__)
-api = uc.IntegrationAPI(_LOOP)
-_configured_devices: dict[str, bridge.SmartHub] = {}
 
 
 class LutronButton(Button):
     """Representation of a Lutron Button entity."""
 
     def __init__(
-        self, config: LutronConfig, scene_info: LutronSceneInfo, get_device: Any = None
+        self,
+        config: LutronDevice,
+        scene_info: LutronSceneInfo,
+        device: SmartHub | None = None,
     ):
-        """Initialize the class."""
-        _LOG.debug("Lutron Button init")
         entity_id = create_entity_id(
-            config.identifier, scene_info.scene_id, EntityTypes.BUTTON
+            EntityTypes.BUTTON,
+            config.identifier,
+            scene_info.scene_id,
         )
         self.config = config
-        self.get_device = get_device
+        self.device = device
+        self.scene_id = scene_info.scene_id
 
         super().__init__(
             entity_id,
@@ -59,14 +56,10 @@ class LutronButton(Button):
         _LOG.info(
             "Got %s command request: %s %s", entity.id, cmd_id, params if params else ""
         )
-        device = self.get_device(self.config.identifier)
-
         try:
             match cmd_id:
                 case button.Commands.PUSH:
-                    await device.activate_scene(
-                        scene_id=entity_from_entity_id(entity.id)
-                    )
+                    await self.device.activate_scene(scene_id=self.scene_id)
 
         except Exception as ex:  # pylint: disable=broad-except
             _LOG.error("Error executing command %s: %s", cmd_id, ex)

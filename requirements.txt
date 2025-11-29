@@ -1,3 +1,4 @@
-ucapi==0.3.1
+ucapi==0.4.0
+ucapi-framework==1.0.1
 pylutron_caseta==0.25.0
 zeroconf==0.147.0

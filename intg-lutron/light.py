@@ -4,18 +4,18 @@ Media-player entity functions.
 :license: Mozilla Public License Version 2.0, see LICENSE for more details.
 """
 
-import re
 import logging
+import re
 from typing import Any
+
 import ucapi
-from config import LutronConfig, create_entity_id
+from bridge import LutronLightInfo, SmartHub
+from const import LutronDevice
 from ucapi import EntityTypes, light
 from ucapi.light import Attributes, Light, States
-from bridge import LutronLightInfo
-import bridge
+from ucapi_framework import create_entity_id
 
 _LOG = logging.getLogger(__name__)
-_configured_devices: dict[str, bridge.SmartHub] = {}
 
 
 class LutronLight(Light):
@@ -23,19 +23,20 @@ class LutronLight(Light):
 
     def __init__(
         self,
-        config_device: LutronConfig,
+        config_device: LutronDevice,
         light_info: LutronLightInfo,
-        get_device: Any = None,
+        device: SmartHub | None = None,
     ):
         """Initialize the class."""
         _LOG.debug("Lutron Light init")
         entity_id = create_entity_id(
+            entity_type=EntityTypes.LIGHT,
             device_id=config_device.identifier,
             entity_id=light_info.device_id,
-            entity_type=EntityTypes.LIGHT,
         )
         self.config = config_device
-        self.get_device = get_device
+        self.device = device
+        self.identifier = light_info.device_id
         self.features = [
             light.Features.ON_OFF,
             light.Features.TOGGLE,
@@ -48,7 +49,7 @@ class LutronLight(Light):
         state = States.OFF
         super().__init__(
             entity_id,
-            light_info.name,
+            light_info.name.replace("_", " "),
             self.features,
             attributes={
                 Attributes.STATE: state,
@@ -74,10 +75,8 @@ class LutronLight(Light):
         _LOG.info(
             "Got %s command request: %s %s", entity.id, cmd_id, params if params else ""
         )
-        device = self.get_device(self.config.identifier)
 
         try:
-            identifier = entity.id.split(".", 2)[2]
             match cmd_id:
                 case light.Commands.ON:
                     if Attributes.BRIGHTNESS in params:
@@ -91,15 +90,15 @@ class LutronLight(Light):
                             )
                             return ucapi.StatusCodes.BAD_REQUEST
 
-                    res = await device.turn_on_light(
-                        f"{identifier}", brightness=brightness
+                    res = await self.device.turn_on_light(
+                        f"{self.identifier}", brightness=brightness
                     )
                 case light.Commands.OFF:
                     _LOG.debug("Sending OFF command to Light")
-                    res = await device.turn_off_light(f"{identifier}")
+                    res = await self.device.turn_off_light(f"{self.identifier}")
                 case light.Commands.TOGGLE:
                     _LOG.debug("Sending TOGGLE command to Light")
-                    res = await device.toggle_light(f"{identifier}")
+                    res = await self.device.toggle_light(f"{self.identifier}")
 
         except Exception as ex:  # pylint: disable=broad-except
             _LOG.error("Error executing command %s: %s", cmd_id, ex)
