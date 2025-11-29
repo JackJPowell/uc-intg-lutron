@@ -22,7 +22,7 @@ from ucapi.light import Attributes as LightAttr
 from ucapi.light import States as LightStates
 from ucapi_framework import BaseDeviceManager, BaseIntegrationDriver, get_config_path
 
-_LOG = logging.getLogger("driver")  # avoid having __main__ in log messages
+_LOG = logging.getLogger("driver")
 
 
 class LutronIntegrationDriver(BaseIntegrationDriver[SmartHub, LutronDevice]):

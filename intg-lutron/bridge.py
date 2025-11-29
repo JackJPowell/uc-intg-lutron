@@ -159,9 +159,9 @@ class SmartHub(ExternalClientDevice):
                 self.events.emit(
                     DeviceEvents.UPDATE,
                     create_entity_id(
+                        EntityTypes.LIGHT,
                         self.device_config.identifier,
                         entity.device_id,
-                        EntityTypes.LIGHT,
                     ),
                     update,
                 )
@@ -182,9 +182,9 @@ class SmartHub(ExternalClientDevice):
             self.events.emit(
                 DeviceEvents.UPDATE,
                 create_entity_id(
+                    EntityTypes.MEDIA_PLAYER,
                     self.device_config.identifier,
                     "0",
-                    EntityTypes.MEDIA_PLAYER,
                 ),
                 update,
             )
@@ -242,9 +242,9 @@ class SmartHub(ExternalClientDevice):
             self.events.emit(
                 DeviceEvents.UPDATE,
                 create_entity_id(
+                    EntityTypes.MEDIA_PLAYER,
                     self.device_config.identifier,
                     "0",
-                    EntityTypes.MEDIA_PLAYER,
                 ),
                 {MediaAttr.SOURCE: scene.name},
             )
@@ -266,9 +266,9 @@ class SmartHub(ExternalClientDevice):
                 self.events.emit(
                     DeviceEvents.UPDATE,
                     create_entity_id(
+                        EntityTypes.LIGHT,
                         self.device_config.identifier,
                         light_id,
-                        EntityTypes.LIGHT,
                     ),
                     {LightAttr.STATE: "ON", LightAttr.BRIGHTNESS: brightness},
                 )
@@ -285,9 +285,9 @@ class SmartHub(ExternalClientDevice):
             self.events.emit(
                 DeviceEvents.UPDATE,
                 create_entity_id(
+                    EntityTypes.LIGHT,
                     self.device_config.identifier,
                     light_id,
-                    EntityTypes.LIGHT,
                 ),
                 {LightAttr.STATE: "OFF", LightAttr.BRIGHTNESS: 0},
             )
@@ -310,13 +310,13 @@ class SmartHub(ExternalClientDevice):
             self.events.emit(
                 DeviceEvents.UPDATE,
                 create_entity_id(
+                    EntityTypes.LIGHT,
                     self.device_config.identifier,
                     light_id,
-                    EntityTypes.LIGHT,
                 ),
                 {
                     LightAttr.STATE: "ON" if not is_on else "OFF",
-                    LightAttr.BRIGHTNESS: 100 if not is_on else 0,
+                    LightAttr.BRIGHTNESS: 255 if not is_on else 0,
                 },
             )
         except Exception as err:  # pylint: disable=broad-exception-caught
