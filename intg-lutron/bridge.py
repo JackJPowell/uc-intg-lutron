@@ -239,6 +239,7 @@ class SmartHub(ExternalClientDevice):
         try:
             await self._lutron_smart_hub.activate_scene(scene.scene_id)
             self._scene = scene
+
             self.events.emit(
                 DeviceEvents.UPDATE,
                 create_entity_id(
@@ -263,15 +264,16 @@ class SmartHub(ExternalClientDevice):
                 await self._lutron_smart_hub.set_value(light_id, brightness)
             else:
                 await self._lutron_smart_hub.turn_on(light_id)
-                self.events.emit(
-                    DeviceEvents.UPDATE,
-                    create_entity_id(
-                        EntityTypes.LIGHT,
-                        self.device_config.identifier,
-                        light_id,
-                    ),
-                    {LightAttr.STATE: "ON", LightAttr.BRIGHTNESS: brightness},
-                )
+
+            self.events.emit(
+                DeviceEvents.UPDATE,
+                create_entity_id(
+                    EntityTypes.LIGHT,
+                    self.device_config.identifier,
+                    light_id,
+                ),
+                {LightAttr.STATE: "ON", LightAttr.BRIGHTNESS: brightness},
+            )
         except Exception as err:  # pylint: disable=broad-exception-caught
             _LOG.error("[%s] Error turning on light %s: %s", self.log_id, light_id, err)
 
@@ -282,6 +284,7 @@ class SmartHub(ExternalClientDevice):
             return
         try:
             await self._lutron_smart_hub.turn_off(light_id)
+
             self.events.emit(
                 DeviceEvents.UPDATE,
                 create_entity_id(
@@ -307,6 +310,7 @@ class SmartHub(ExternalClientDevice):
                 await self._lutron_smart_hub.turn_off(light_id)
             else:
                 await self._lutron_smart_hub.turn_on(light_id)
+
             self.events.emit(
                 DeviceEvents.UPDATE,
                 create_entity_id(
