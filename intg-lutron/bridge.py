@@ -36,6 +36,7 @@ class SmartHub(ExternalClientDevice):
             watchdog_interval=30,
             reconnect_delay=5,
             max_reconnect_attempts=0,  # Infinite retries
+            config_manager=config_manager,
         )
 
         if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
