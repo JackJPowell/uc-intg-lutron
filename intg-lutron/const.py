@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 
 @dataclass
-class LutronDevice:
+class LutronConfig:
     """Lutron device configuration."""
 
     identifier: str

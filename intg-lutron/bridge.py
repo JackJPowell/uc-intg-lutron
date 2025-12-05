@@ -9,7 +9,7 @@ import sys
 from asyncio import AbstractEventLoop
 from typing import Any
 
-from const import LutronCoverInfo, LutronDevice, LutronLightInfo, LutronSceneInfo
+from const import LutronCoverInfo, LutronConfig, LutronLightInfo, LutronSceneInfo
 from pylutron_caseta.smartbridge import Smartbridge
 from ucapi import EntityTypes
 from ucapi.light import Attributes as LightAttr
@@ -25,13 +25,13 @@ class SmartHub(ExternalClientDevice):
 
     def __init__(
         self,
-        config: LutronDevice,
+        device_config: LutronConfig,
         loop: AbstractEventLoop | None = None,
         config_manager=None,
     ) -> None:
         """Create instance."""
         super().__init__(
-            config,
+            device_config,
             loop=loop,
             watchdog_interval=30,
             reconnect_delay=5,
@@ -54,7 +54,7 @@ class SmartHub(ExternalClientDevice):
         self._scene: LutronSceneInfo | None = None
 
     @property
-    def device_config(self) -> LutronDevice:
+    def device_config(self) -> LutronConfig:
         """Return the device configuration."""
         return self._device_config
 

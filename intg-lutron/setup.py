@@ -8,7 +8,7 @@ import sys
 from ipaddress import ip_address
 from typing import Any
 
-from const import LutronDevice
+from const import LutronConfig
 from pylutron_caseta.pairing import async_pair
 from pylutron_caseta.smartbridge import Smartbridge
 from ucapi import RequestUserInput, SetupError
@@ -58,7 +58,7 @@ _MANUAL_INPUT_SCHEMA = RequestUserInput(
 )
 
 
-class LutronSetupFlow(BaseSetupFlow[LutronDevice]):
+class LutronSetupFlow(BaseSetupFlow[LutronConfig]):
     """
     Setup flow for Lutron integration.
 
@@ -97,7 +97,7 @@ class LutronSetupFlow(BaseSetupFlow[LutronDevice]):
 
     async def query_device(
         self, input_values: dict[str, Any]
-    ) -> LutronDevice | SetupError | RequestUserInput:
+    ) -> LutronConfig | SetupError | RequestUserInput:
         """
         Handle the artwork selection response and complete setup.
 
@@ -138,7 +138,7 @@ class LutronSetupFlow(BaseSetupFlow[LutronDevice]):
 
                 smarthub = devices["1"]
 
-                return LutronDevice(
+                return LutronConfig(
                     identifier=smarthub["serial"],
                     address=address,
                     name=smarthub["name"].replace("_", " "),

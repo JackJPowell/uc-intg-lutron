@@ -10,7 +10,7 @@ from typing import Any
 
 import ucapi
 from bridge import LutronLightInfo, SmartHub
-from const import LutronDevice
+from const import LutronConfig
 from ucapi import EntityTypes, light
 from ucapi.light import Attributes, Light, States
 from ucapi_framework import create_entity_id
@@ -23,7 +23,7 @@ class LutronLight(Light):
 
     def __init__(
         self,
-        config_device: LutronDevice,
+        config_device: LutronConfig,
         light_info: LutronLightInfo,
         device: SmartHub | None = None,
     ):
@@ -32,7 +32,7 @@ class LutronLight(Light):
         entity_id = create_entity_id(
             entity_type=EntityTypes.LIGHT,
             device_id=config_device.identifier,
-            entity_id=light_info.device_id,
+            sub_device_id=light_info.device_id,
         )
         self.config = config_device
         self.device = device

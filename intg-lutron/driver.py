@@ -12,7 +12,7 @@ import os
 
 from bridge import SmartHub
 from button import LutronButton
-from const import LutronDevice
+from const import LutronConfig
 from discover import LutronDiscovery
 from light import LutronLight
 from setup import LutronSetupFlow
@@ -20,12 +20,12 @@ from ucapi import EntityTypes
 from ucapi.button import Attributes as ButtonAttr
 from ucapi.light import Attributes as LightAttr
 from ucapi.light import States as LightStates
-from ucapi_framework import BaseDeviceManager, BaseIntegrationDriver, get_config_path
+from ucapi_framework import BaseConfigManager, BaseIntegrationDriver, get_config_path
 
 _LOG = logging.getLogger("driver")
 
 
-class LutronIntegrationDriver(BaseIntegrationDriver[SmartHub, LutronDevice]):
+class LutronIntegrationDriver(BaseIntegrationDriver[SmartHub, LutronConfig]):
     async def refresh_entity_state(self, entity_id):
         """
         Refresh the state of a configured entity by querying the device.
@@ -38,7 +38,7 @@ class LutronIntegrationDriver(BaseIntegrationDriver[SmartHub, LutronDevice]):
                     (
                         scene
                         for scene in device.scenes
-                        if scene.scene_id == self.entity_from_entity_id(entity_id)
+                        if scene.scene_id == self.sub_device_from_entity_id(entity_id)
                     ),
                     None,
                 )
@@ -52,7 +52,7 @@ class LutronIntegrationDriver(BaseIntegrationDriver[SmartHub, LutronDevice]):
                     (
                         light
                         for light in device.lights
-                        if light.device_id == self.entity_from_entity_id(entity_id)
+                        if light.device_id == self.sub_device_from_entity_id(entity_id)
                     ),
                     None,
                 )
@@ -66,7 +66,7 @@ class LutronIntegrationDriver(BaseIntegrationDriver[SmartHub, LutronDevice]):
                     self.api.configured_entities.update_attributes(entity_id, update)
 
     async def async_register_available_entities(
-        self, device_config: LutronDevice, device: SmartHub
+        self, device_config: LutronConfig, device: SmartHub
     ) -> bool:
         """
         Register entities by querying the Lutron hub for its devices.
@@ -145,29 +145,23 @@ async def main():
     logging.getLogger("discover").setLevel(level)
     logging.getLogger("setup").setLevel(level)
 
-    loop = asyncio.get_running_loop()
-
     driver = LutronIntegrationDriver(
-        loop=loop,
         device_class=SmartHub,
         entity_classes=[LutronLight, LutronButton],
         require_connection_before_registry=True,
     )
 
-    driver.config = BaseDeviceManager(
+    driver.config_manager = BaseConfigManager(
         get_config_path(driver.api.config_dir_path),
         driver.on_device_added,
         driver.on_device_removed,
-        device_class=LutronDevice,
+        config_class=LutronConfig,
     )
 
-    for device_config in list(driver.config.all()):
-        await driver.async_add_configured_device(device_config)
+    await driver.register_all_configured_devices()
 
     discovery = LutronDiscovery(service_type="_lutron._tcp.local.", timeout=2)
-
-    setup_handler = LutronSetupFlow.create_handler(driver.config, discovery)
-
+    setup_handler = LutronSetupFlow.create_handler(driver, discovery)
     await driver.api.init("driver.json", setup_handler)
 
     await asyncio.Future()

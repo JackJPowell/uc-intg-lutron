@@ -9,7 +9,7 @@ from typing import Any
 
 import ucapi
 from bridge import SmartHub
-from const import LutronDevice, LutronSceneInfo
+from const import LutronConfig, LutronSceneInfo
 from ucapi import Button, EntityTypes, button
 from ucapi_framework import create_entity_id
 
@@ -21,7 +21,7 @@ class LutronButton(Button):
 
     def __init__(
         self,
-        config: LutronDevice,
+        config: LutronConfig,
         scene_info: LutronSceneInfo,
         device: SmartHub | None = None,
     ):
