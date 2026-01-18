@@ -16,47 +16,6 @@ from ucapi_framework import BaseSetupFlow
 
 _LOG = logging.getLogger(__name__)
 
-_MANUAL_INPUT_SCHEMA = RequestUserInput(
-    {"en": "Lutron Caseta Setup"},
-    [
-        {
-            "id": "info",
-            "label": {
-                "en": "Setup your Lutron Caseta Device",
-            },
-            "field": {
-                "label": {
-                    "value": {
-                        "en": (
-                            "Please supply the IP address of your Lutron Caseta Device."
-                        ),
-                    }
-                }
-            },
-        },
-        {
-            "field": {"text": {"value": ""}},
-            "id": "address",
-            "label": {
-                "en": "IP Address",
-            },
-        },
-        {
-            "id": "setup_info",
-            "label": {
-                "en": "",
-            },
-            "field": {
-                "label": {
-                    "value": {
-                        "en": "After pressing 'Next', press the small black button on the back of your Lutron Caseta Smart Hub to complete the pairing process.",
-                    }
-                }
-            },
-        },
-    ],
-)
-
 
 class LutronSetupFlow(BaseSetupFlow[LutronConfig]):
     """
@@ -71,7 +30,46 @@ class LutronSetupFlow(BaseSetupFlow[LutronConfig]):
 
         :return: RequestUserInput with form fields for manual configuration
         """
-        return _MANUAL_INPUT_SCHEMA
+        return RequestUserInput(
+            {"en": "Lutron Caseta Setup"},
+            [
+                {
+                    "id": "info",
+                    "label": {
+                        "en": "Setup your Lutron Caseta Device",
+                    },
+                    "field": {
+                        "label": {
+                            "value": {
+                                "en": (
+                                    "Please supply the IP address of your Lutron Caseta Device."
+                                ),
+                            }
+                        }
+                    },
+                },
+                {
+                    "field": {"text": {"value": ""}},
+                    "id": "address",
+                    "label": {
+                        "en": "IP Address",
+                    },
+                },
+                {
+                    "id": "setup_info",
+                    "label": {
+                        "en": "",
+                    },
+                    "field": {
+                        "label": {
+                            "value": {
+                                "en": "After pressing 'Next', press the small black button on the back of your Lutron Caseta Smart Hub to complete the pairing process.",
+                            }
+                        }
+                    },
+                },
+            ],
+        )
 
     def get_additional_discovery_fields(self) -> list[dict]:
         """
@@ -106,12 +104,11 @@ class LutronSetupFlow(BaseSetupFlow[LutronConfig]):
 
         address = input_values["address"]
         data = await async_pair(address)
-        with open(f"{get_path()}/caseta-bridge.crt", "w") as cacert:
-            cacert.write(data["ca"])
-        with open(f"{get_path()}/caseta.crt", "w") as cert:
-            cert.write(data["cert"])
-        with open(f"{get_path()}/caseta.key", "w") as key:
-            key.write(data["key"])
+
+        # Store certificates in variables to be saved in config
+        ca_cert = data["ca"]
+        cert = data["cert"]
+        key = data["key"]
 
         if address != "":
             # Check if input is a valid ipv4 or ipv6 address
@@ -119,16 +116,36 @@ class LutronSetupFlow(BaseSetupFlow[LutronConfig]):
                 ip_address(address)
             except ValueError:
                 _LOG.error("The entered ip address %s is not valid", address)
-                return _MANUAL_INPUT_SCHEMA
+                return self.get_manual_entry_form()
 
             _LOG.info("Entered ip address: %s", address)
 
             try:
+                # Get data path - write access on remote is limited to data directory
+                data_path = get_path()
+
+                # Create data directory if it doesn't exist
+                os.makedirs(data_path, exist_ok=True)
+
+                # Write certificates to files in data directory for connection test
+                key_path = os.path.join(data_path, "caseta.key")
+                cert_path = os.path.join(data_path, "caseta.crt")
+                ca_cert_path = os.path.join(data_path, "caseta-bridge.crt")
+
+                with open(key_path, "w", encoding="utf-8") as key_file:
+                    key_file.write(key)
+
+                with open(cert_path, "w", encoding="utf-8") as cert_file:
+                    cert_file.write(cert)
+
+                with open(ca_cert_path, "w", encoding="utf-8") as ca_cert_file:
+                    ca_cert_file.write(ca_cert)
+
                 lutron_smart_hub: Smartbridge = Smartbridge.create_tls(
                     address,
-                    f"{get_path()}/caseta.key",
-                    f"{get_path()}/caseta.crt",
-                    f"{get_path()}/caseta-bridge.crt",
+                    key_path,
+                    cert_path,
+                    ca_cert_path,
                 )
                 try:
                     await lutron_smart_hub.connect()
@@ -143,6 +160,9 @@ class LutronSetupFlow(BaseSetupFlow[LutronConfig]):
                     address=address,
                     name=smarthub["name"].replace("_", " "),
                     model=smarthub["model"],
+                    ca_cert=ca_cert,
+                    cert=cert,
+                    key=key,
                 )
 
             except Exception as ex:  # pylint: disable=broad-exception-caught
@@ -150,10 +170,10 @@ class LutronSetupFlow(BaseSetupFlow[LutronConfig]):
                 _LOG.info(
                     "Please check if you entered the correct ip of the lutron hub"
                 )
-                return _MANUAL_INPUT_SCHEMA
+                return self.get_manual_entry_form()
         else:
             _LOG.info("No ip address entered")
-            return _MANUAL_INPUT_SCHEMA
+            return self.get_manual_entry_form()
 
 
 def get_path() -> str:

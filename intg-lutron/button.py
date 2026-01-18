@@ -11,12 +11,12 @@ import ucapi
 from bridge import SmartHub
 from const import LutronConfig, LutronSceneInfo
 from ucapi import Button, EntityTypes, button
-from ucapi_framework import create_entity_id
+from ucapi_framework import create_entity_id, Entity
 
 _LOG = logging.getLogger(__name__)
 
 
-class LutronButton(Button):
+class LutronButton(Button, Entity):
     """Representation of a Lutron Button entity."""
 
     def __init__(
@@ -41,7 +41,7 @@ class LutronButton(Button):
         )
 
     async def button_cmd_handler(
-        self, entity: Button, cmd_id: str, params: dict[str, Any] | None
+        self, entity: ucapi.Entity, cmd_id: str, params: dict[str, Any] | None, _: Any | None = None
     ) -> ucapi.StatusCodes:
         """
         Button entity command handler.
@@ -56,10 +56,17 @@ class LutronButton(Button):
         _LOG.info(
             "Got %s command request: %s %s", entity.id, cmd_id, params if params else ""
         )
+        
+        if not self.device:
+            _LOG.error("Device not available")
+            return ucapi.StatusCodes.SERVICE_UNAVAILABLE
+        
         try:
             match cmd_id:
                 case button.Commands.PUSH:
                     await self.device.activate_scene(scene_id=self.scene_id)
+                    # Update entity attributes from device
+                    self.update(self.device.get_device_attributes(entity.id))
 
         except Exception as ex:  # pylint: disable=broad-except
             _LOG.error("Error executing command %s: %s", cmd_id, ex)

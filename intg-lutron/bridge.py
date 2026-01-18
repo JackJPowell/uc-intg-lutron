@@ -4,18 +4,19 @@ This module implements the Lutron communication of the Remote Two/3 integration 
 """
 
 import logging
-import os
-import sys
 from asyncio import AbstractEventLoop
 from typing import Any
-
+import os
+import sys
 from const import LutronCoverInfo, LutronConfig, LutronLightInfo, LutronSceneInfo
 from pylutron_caseta.smartbridge import Smartbridge
-from ucapi import EntityTypes
-from ucapi.light import Attributes as LightAttr
-from ucapi.media_player import Attributes as MediaAttr
-from ucapi_framework import ExternalClientDevice, create_entity_id
-from ucapi_framework.device import DeviceEvents
+from ucapi import EntityTypes, button, light
+from ucapi_framework import (
+    ExternalClientDevice,
+    create_entity_id,
+    LightAttributes,
+    ButtonAttributes,
+)
 
 _LOG = logging.getLogger(__name__)
 
@@ -39,19 +40,18 @@ class SmartHub(ExternalClientDevice):
             config_manager=config_manager,
         )
 
-        if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
-            path = os.environ["UC_DATA_HOME"]
-        else:
-            path = "./data"
-
-        self._key_path = f"{path}/caseta.key"
-        self._cert_path = f"{path}/caseta.crt"
-        self._bridge_cert_path = f"{path}/caseta-bridge.crt"
         self._lutron_smart_hub: Smartbridge | None = None
         self._lights: list[LutronLightInfo] = []
         self._covers: list[LutronCoverInfo] = []
         self._scenes: list[LutronSceneInfo] = []
         self._scene: LutronSceneInfo | None = None
+
+        # Store entity attributes indexed by entity_id
+        self._light_attributes: dict[str, LightAttributes] = {}
+        self._button_attributes: dict[str, ButtonAttributes] = {}
+        
+        # Store entity references for update notifications
+        self._light_entities: dict[str, Any] = {}
 
     @property
     def device_config(self) -> LutronConfig:
@@ -84,10 +84,10 @@ class SmartHub(ExternalClientDevice):
         return "ON" if self.is_connected else "OFF"
 
     @property
-    def attributes(self) -> dict[str, any]:
+    def attributes(self) -> dict[str, Any]:
         """Return the device attributes."""
         return {
-            MediaAttr.STATE: self.state,
+            "STATE": self.state,
         }
 
     @property
@@ -110,30 +110,58 @@ class SmartHub(ExternalClientDevice):
         """Return the current scene."""
         return self._scene.name if self._scene else None
 
-    # ─────────────────────────────────────────────────────────────────
-    # ExternalClientDevice abstract methods implementation
-    # ─────────────────────────────────────────────────────────────────
-
     async def create_client(self) -> Smartbridge:
         """Create the Smartbridge client instance."""
+        # Ensure certificate files exist and get their paths
+        key_path, cert_path, ca_cert_path = self._ensure_certificate_files()
+
         return Smartbridge.create_tls(
             self._device_config.address,
-            self._key_path,
-            self._cert_path,
-            self._bridge_cert_path,
+            key_path,
+            cert_path,
+            ca_cert_path,
         )
 
     async def connect_client(self) -> None:
         """Connect the Smartbridge client."""
+        # Ensure certificate files exist before connecting
+        self._ensure_certificate_files()
+
         self._lutron_smart_hub = self._client
         await self._lutron_smart_hub.connect()
         _LOG.info("[%s] Connected to Lutron device", self.log_id)
 
-        # Update lights and scenes after connection
-        self._update_lights()
-        for light in self._lights:
-            self._lutron_smart_hub.add_subscriber(light.device_id, self._update_lights)
-        self._update_scenes()
+        # Populate lights and scenes after connection
+        self._lights = self.get_lights()
+        self._scenes = self.get_scenes()
+
+        # Initialize attributes for each entity
+        for light_info in self._lights:
+            entity_id = create_entity_id(
+                EntityTypes.LIGHT,
+                self.device_config.identifier,
+                light_info.device_id,
+            )
+            self._light_attributes[entity_id] = LightAttributes(
+                STATE=light.States.ON
+                if light_info.current_state > 0
+                else light.States.OFF,
+                BRIGHTNESS=int(light_info.current_state * 255 / 100),
+            )
+            # Subscribe to light updates
+            self._lutron_smart_hub.add_subscriber(
+                light_info.device_id, self._update_lights
+            )
+
+        for scene_info in self._scenes:
+            entity_id = create_entity_id(
+                EntityTypes.BUTTON,
+                self.device_config.identifier,
+                scene_info.scene_id,
+            )
+            self._button_attributes[entity_id] = ButtonAttributes(
+                STATE=button.States.AVAILABLE,
+            )
 
     async def disconnect_client(self) -> None:
         """Disconnect the Smartbridge client."""
@@ -145,53 +173,54 @@ class SmartHub(ExternalClientDevice):
         """Check if the Smartbridge client is connected."""
         return self._lutron_smart_hub is not None and self._lutron_smart_hub.logged_in
 
+    def get_device_attributes(
+        self, entity_id: str
+    ) -> LightAttributes | ButtonAttributes:
+        """Get entity attributes by entity_id."""
+        if entity_id in self._light_attributes:
+            return self._light_attributes[entity_id]
+        if entity_id in self._button_attributes:
+            return self._button_attributes[entity_id]
+        return LightAttributes()  # Default fallback
+
+    def register_light_entity(self, entity_id: str, entity: Any) -> None:
+        """Register a light entity for update notifications."""
+        self._light_entities[entity_id] = entity
+
     def _update_lights(self) -> None:
+        """Update light attributes from Lutron hub."""
         if not self._lutron_smart_hub:
             return
-        update = {}
         try:
             self._lights = self.get_lights()
 
             for entity in self._lights:
-                update = {}
-                update[LightAttr.STATE] = "ON" if entity.current_state > 0 else "OFF"
-                update[LightAttr.BRIGHTNESS] = int(entity.current_state * 255 / 100)
-
-                self.events.emit(
-                    DeviceEvents.UPDATE,
-                    create_entity_id(
-                        EntityTypes.LIGHT,
-                        self.device_config.identifier,
-                        entity.device_id,
-                    ),
-                    update,
-                )
-
-        except Exception:  # pylint: disable=broad-exception-caught
-            _LOG.exception("[%s] App list: protocol error", self.log_id)
-
-    def _update_scenes(self) -> None:
-        if not self._lutron_smart_hub:
-            return
-        update = {}
-        update[MediaAttr.STATE] = self.state
-
-        try:
-            self._scenes = self.get_scenes()
-            update[MediaAttr.SOURCE_LIST] = [scene.name for scene in self._scenes]
-
-            self.events.emit(
-                DeviceEvents.UPDATE,
-                create_entity_id(
-                    EntityTypes.MEDIA_PLAYER,
+                entity_id = create_entity_id(
+                    EntityTypes.LIGHT,
                     self.device_config.identifier,
-                    "0",
-                ),
-                update,
-            )
+                    entity.device_id,
+                )
+                # Get old attributes to compare
+                old_attributes = self._light_attributes.get(entity_id)
+                
+                # Update stored attributes
+                new_attributes = LightAttributes(
+                    STATE=light.States.ON
+                    if entity.current_state > 0
+                    else light.States.OFF,
+                    BRIGHTNESS=int(entity.current_state * 255 / 100),
+                )
+                self._light_attributes[entity_id] = new_attributes
+                
+                # Emit update event if attributes changed
+                if old_attributes != new_attributes:
+                    # Get the entity from stored references and call update
+                    light_entity = self._light_entities.get(entity_id)
+                    if light_entity:
+                        light_entity.update(new_attributes)
 
         except Exception:  # pylint: disable=broad-exception-caught
-            _LOG.exception("[%s] App list: protocol error", self.log_id)
+            _LOG.exception("[%s] Light update error", self.log_id)
 
     def get_lights(self) -> list[Any]:
         """Return the list of light entities."""
@@ -202,11 +231,11 @@ class SmartHub(ExternalClientDevice):
         for entity in lights:
             light_list.append(
                 LutronLightInfo(
-                    device_id=entity.get("device_id"),
-                    current_state=entity.get("current_state"),
-                    type=entity.get("type"),
-                    name=entity.get("name"),
-                    model=entity.get("model"),
+                    device_id=entity.get("device_id", ""),
+                    current_state=entity.get("current_state", 0),
+                    type=entity.get("type", ""),
+                    name=entity.get("name", ""),
+                    model=entity.get("model", ""),
                 )
             )
         return light_list
@@ -220,8 +249,8 @@ class SmartHub(ExternalClientDevice):
         for scene in scenes.values():
             scene_list.append(
                 LutronSceneInfo(
-                    scene_id=scene.get("scene_id"),
-                    name=scene.get("name"),
+                    scene_id=scene.get("scene_id", ""),
+                    name=scene.get("name", ""),
                 )
             )
         return scene_list
@@ -231,7 +260,7 @@ class SmartHub(ExternalClientDevice):
         if not self._lutron_smart_hub:
             _LOG.error("[%s] Not connected", self.log_id)
             return
-        scene: LutronSceneInfo = next(
+        scene: LutronSceneInfo | None = next(
             (s for s in self.scenes if s.scene_id == scene_id), None
         )
         if scene is None:
@@ -240,22 +269,12 @@ class SmartHub(ExternalClientDevice):
         try:
             await self._lutron_smart_hub.activate_scene(scene.scene_id)
             self._scene = scene
-
-            self.events.emit(
-                DeviceEvents.UPDATE,
-                create_entity_id(
-                    EntityTypes.MEDIA_PLAYER,
-                    self.device_config.identifier,
-                    "0",
-                ),
-                {MediaAttr.SOURCE: scene.name},
-            )
         except Exception as err:  # pylint: disable=broad-exception-caught
             _LOG.error(
                 "[%s] Error activating scene %s: %s", self.log_id, scene.name, err
             )
 
-    async def turn_on_light(self, light_id: str, brightness: int = None) -> None:
+    async def turn_on_light(self, light_id: str, brightness: int | None = None) -> None:
         """Turn on a light with a specific brightness."""
         if not self._lutron_smart_hub:
             _LOG.error("[%s] Not connected", self.log_id)
@@ -266,14 +285,17 @@ class SmartHub(ExternalClientDevice):
             else:
                 await self._lutron_smart_hub.turn_on(light_id)
 
-            self.events.emit(
-                DeviceEvents.UPDATE,
-                create_entity_id(
-                    EntityTypes.LIGHT,
-                    self.device_config.identifier,
-                    light_id,
-                ),
-                {LightAttr.STATE: "ON", LightAttr.BRIGHTNESS: brightness},
+            # Update stored attributes
+            entity_id = create_entity_id(
+                EntityTypes.LIGHT,
+                self.device_config.identifier,
+                light_id,
+            )
+            # Convert Lutron brightness (0-100) back to ucapi (0-255)
+            ucapi_brightness = int(brightness * 255 / 100) if brightness is not None else 255
+            self._light_attributes[entity_id] = LightAttributes(
+                STATE=light.States.ON,
+                BRIGHTNESS=ucapi_brightness,
             )
         except Exception as err:  # pylint: disable=broad-exception-caught
             _LOG.error("[%s] Error turning on light %s: %s", self.log_id, light_id, err)
@@ -286,14 +308,15 @@ class SmartHub(ExternalClientDevice):
         try:
             await self._lutron_smart_hub.turn_off(light_id)
 
-            self.events.emit(
-                DeviceEvents.UPDATE,
-                create_entity_id(
-                    EntityTypes.LIGHT,
-                    self.device_config.identifier,
-                    light_id,
-                ),
-                {LightAttr.STATE: "OFF", LightAttr.BRIGHTNESS: 0},
+            # Update stored attributes
+            entity_id = create_entity_id(
+                EntityTypes.LIGHT,
+                self.device_config.identifier,
+                light_id,
+            )
+            self._light_attributes[entity_id] = LightAttributes(
+                STATE=light.States.OFF,
+                BRIGHTNESS=0,
             )
         except Exception as err:  # pylint: disable=broad-exception-caught
             _LOG.error(
@@ -312,17 +335,59 @@ class SmartHub(ExternalClientDevice):
             else:
                 await self._lutron_smart_hub.turn_on(light_id)
 
-            self.events.emit(
-                DeviceEvents.UPDATE,
-                create_entity_id(
-                    EntityTypes.LIGHT,
-                    self.device_config.identifier,
-                    light_id,
-                ),
-                {
-                    LightAttr.STATE: "ON" if not is_on else "OFF",
-                    LightAttr.BRIGHTNESS: 255 if not is_on else 0,
-                },
+            # Update stored attributes
+            entity_id = create_entity_id(
+                EntityTypes.LIGHT,
+                self.device_config.identifier,
+                light_id,
+            )
+            self._light_attributes[entity_id] = LightAttributes(
+                STATE=light.States.ON if not is_on else light.States.OFF,
+                BRIGHTNESS=255 if not is_on else 0,
             )
         except Exception as err:  # pylint: disable=broad-exception-caught
             _LOG.error("[%s] Error toggling light %s: %s", self.log_id, light_id, err)
+
+    def _ensure_certificate_files(self) -> tuple[str, str, str]:
+        """
+        Ensure certificate files exist in the data directory.
+
+        Writes certificates from config to files if they don't exist or if force_write is True.
+        Returns the paths to the certificate files.
+
+        :return: Tuple of (key_path, cert_path, ca_cert_path)
+        """
+        # Determine data path - write access on remote is limited to data directory
+        if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+            data_path = os.environ["UC_DATA_HOME"]
+        else:
+            data_path = "./data"
+
+        # Create data directory if it doesn't exist
+        os.makedirs(data_path, exist_ok=True)
+
+        # Certificate file paths
+        key_path = os.path.join(data_path, "caseta.key")
+        cert_path = os.path.join(data_path, "caseta.crt")
+        ca_cert_path = os.path.join(data_path, "caseta-bridge.crt")
+
+        # Check if any certificate files are missing
+        if (
+            not os.path.exists(key_path)
+            or not os.path.exists(cert_path)
+            or not os.path.exists(ca_cert_path)
+        ):
+            _LOG.debug(
+                "[%s] Certificate files missing, creating from config", self.log_id
+            )
+
+            with open(key_path, "w", encoding="utf-8") as key_file:
+                key_file.write(self._device_config.key)
+
+            with open(cert_path, "w", encoding="utf-8") as cert_file:
+                cert_file.write(self._device_config.cert)
+
+            with open(ca_cert_path, "w", encoding="utf-8") as ca_cert_file:
+                ca_cert_file.write(self._device_config.ca_cert)
+
+        return key_path, cert_path, ca_cert_path

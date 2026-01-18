@@ -17,6 +17,12 @@ class LutronConfig:
     """Name of the device."""
     model: str
     """Model name of the device."""
+    ca_cert: str = ""
+    """CA certificate (caseta-bridge.crt) as text."""
+    cert: str = ""
+    """Client certificate (caseta.crt) as text."""
+    key: str = ""
+    """Private key (caseta.key) as text."""
 
 
 @dataclass
