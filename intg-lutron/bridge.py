@@ -16,6 +16,7 @@ from ucapi_framework import (
     create_entity_id,
     LightAttributes,
     ButtonAttributes,
+    BaseIntegrationDriver,
 )
 
 _LOG = logging.getLogger(__name__)
@@ -29,6 +30,7 @@ class SmartHub(ExternalClientDevice):
         device_config: LutronConfig,
         loop: AbstractEventLoop | None = None,
         config_manager=None,
+        driver: BaseIntegrationDriver | None = None,
     ) -> None:
         """Create instance."""
         super().__init__(
@@ -38,6 +40,7 @@ class SmartHub(ExternalClientDevice):
             reconnect_delay=5,
             max_reconnect_attempts=0,  # Infinite retries
             config_manager=config_manager,
+            driver=driver,
         )
 
         self._lutron_smart_hub: Smartbridge | None = None
@@ -49,7 +52,7 @@ class SmartHub(ExternalClientDevice):
         # Store entity attributes indexed by entity_id
         self._light_attributes: dict[str, LightAttributes] = {}
         self._button_attributes: dict[str, ButtonAttributes] = {}
-        
+
         # Store entity references for update notifications
         self._light_entities: dict[str, Any] = {}
 
@@ -202,7 +205,7 @@ class SmartHub(ExternalClientDevice):
                 )
                 # Get old attributes to compare
                 old_attributes = self._light_attributes.get(entity_id)
-                
+
                 # Update stored attributes
                 new_attributes = LightAttributes(
                     STATE=light.States.ON
@@ -211,7 +214,7 @@ class SmartHub(ExternalClientDevice):
                     BRIGHTNESS=int(entity.current_state * 255 / 100),
                 )
                 self._light_attributes[entity_id] = new_attributes
-                
+
                 # Emit update event if attributes changed
                 if old_attributes != new_attributes:
                     # Get the entity from stored references and call update
@@ -292,7 +295,9 @@ class SmartHub(ExternalClientDevice):
                 light_id,
             )
             # Convert Lutron brightness (0-100) back to ucapi (0-255)
-            ucapi_brightness = int(brightness * 255 / 100) if brightness is not None else 255
+            ucapi_brightness = (
+                int(brightness * 255 / 100) if brightness is not None else 255
+            )
             self._light_attributes[entity_id] = LightAttributes(
                 STATE=light.States.ON,
                 BRIGHTNESS=ucapi_brightness,
