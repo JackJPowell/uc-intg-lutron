@@ -1,6 +1,6 @@
 [project]
 name = "uc-intg-lutron"
-version = "1.0.2"
+version = "1.0.3"
 description = "Unfolded Circle Lutron Caseta Integration"
 readme = "README.md"
 requires-python = ">=3.11"
