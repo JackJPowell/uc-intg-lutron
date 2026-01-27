@@ -58,14 +58,14 @@ class LutronLight(Light, Entity):
             },
             cmd_handler=self.cmd_handler,
         )
-        
-        # Register with device for update notifications
-        if device:
-            device.register_light_entity(self._entity_id, self)
 
     # pylint: disable=too-many-statements
     async def cmd_handler(
-        self, entity: ucapi.Entity, cmd_id: str, params: dict[str, Any] | None, _: Any | None = None
+        self,
+        entity: ucapi.Entity,
+        cmd_id: str,
+        params: dict[str, Any] | None,
+        _: Any | None = None,
     ) -> ucapi.StatusCodes:
         """
         Lutron light entity command handler.
@@ -80,7 +80,7 @@ class LutronLight(Light, Entity):
         _LOG.info(
             "Got %s command request: %s %s", entity.id, cmd_id, params if params else ""
         )
-        
+
         if not self.device:
             _LOG.error("Device not available")
             return ucapi.StatusCodes.SERVICE_UNAVAILABLE

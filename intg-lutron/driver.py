@@ -53,7 +53,7 @@ async def main():
         config_class=LutronConfig,
     )
 
-    await driver.register_all_configured_devices()
+    await driver.register_all_device_instances()
 
     discovery = LutronDiscovery(service_type="_lutron._tcp.local.", timeout=2)
     setup_handler = LutronSetupFlow.create_handler(driver, discovery)

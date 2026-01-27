@@ -53,9 +53,6 @@ class SmartHub(ExternalClientDevice):
         self._light_attributes: dict[str, LightAttributes] = {}
         self._button_attributes: dict[str, ButtonAttributes] = {}
 
-        # Store entity references for update notifications
-        self._light_entities: dict[str, Any] = {}
-
     @property
     def device_config(self) -> LutronConfig:
         """Return the device configuration."""
@@ -186,9 +183,7 @@ class SmartHub(ExternalClientDevice):
             return self._button_attributes[entity_id]
         return LightAttributes()  # Default fallback
 
-    def register_light_entity(self, entity_id: str, entity: Any) -> None:
-        """Register a light entity for update notifications."""
-        self._light_entities[entity_id] = entity
+
 
     def _update_lights(self) -> None:
         """Update light attributes from Lutron hub."""
@@ -217,10 +212,11 @@ class SmartHub(ExternalClientDevice):
 
                 # Emit update event if attributes changed
                 if old_attributes != new_attributes:
-                    # Get the entity from stored references and call update
-                    light_entity = self._light_entities.get(entity_id)
-                    if light_entity:
-                        light_entity.update(new_attributes)
+                    # Get the entity from driver and call update
+                    if self.driver:
+                        light_entity = self.driver.get_entity_by_id(entity_id)
+                        if light_entity:
+                            light_entity.update(new_attributes)
 
         except Exception:  # pylint: disable=broad-exception-caught
             _LOG.exception("[%s] Light update error", self.log_id)
