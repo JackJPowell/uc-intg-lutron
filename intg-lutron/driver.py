@@ -13,6 +13,7 @@ import os
 from bridge import SmartHub
 from button import LutronButton
 from const import LutronConfig
+from cover import LutronCover
 from discover import LutronDiscovery
 from light import LutronLight
 from setup import LutronSetupFlow
@@ -37,6 +38,10 @@ async def main():
             lambda cfg, dev: [
                 LutronLight(cfg, light_info, dev)
                 for light_info in dev.lights
+            ],
+            lambda cfg, dev: [
+                LutronCover(cfg, cover_info, dev)
+                for cover_info in dev.covers
             ],
             lambda cfg, dev: [
                 LutronButton(cfg, scene_info, dev)

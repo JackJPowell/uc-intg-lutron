@@ -10,12 +10,13 @@ import os
 import sys
 from const import LutronCoverInfo, LutronConfig, LutronLightInfo, LutronSceneInfo
 from pylutron_caseta.smartbridge import Smartbridge
-from ucapi import EntityTypes, button, light
+from ucapi import EntityTypes, button, light, cover
 from ucapi_framework import (
     ExternalClientDevice,
     create_entity_id,
     LightAttributes,
     ButtonAttributes,
+    CoverAttributes,
     BaseIntegrationDriver,
 )
 
@@ -52,6 +53,7 @@ class SmartHub(ExternalClientDevice):
         # Store entity attributes indexed by entity_id
         self._light_attributes: dict[str, LightAttributes] = {}
         self._button_attributes: dict[str, ButtonAttributes] = {}
+        self._cover_attributes: dict[str, CoverAttributes] = {}
 
     @property
     def device_config(self) -> LutronConfig:
@@ -131,11 +133,12 @@ class SmartHub(ExternalClientDevice):
         await self._lutron_smart_hub.connect()
         _LOG.info("[%s] Connected to Lutron device", self.log_id)
 
-        # Populate lights and scenes after connection
+        # Populate lights, covers, and scenes after connection
         self._lights = self.get_lights()
+        self._covers = self.get_covers()
         self._scenes = self.get_scenes()
 
-        # Initialize attributes for each entity
+        # Initialize attributes for each light entity
         for light_info in self._lights:
             entity_id = create_entity_id(
                 EntityTypes.LIGHT,
@@ -153,6 +156,24 @@ class SmartHub(ExternalClientDevice):
                 light_info.device_id, self._update_lights
             )
 
+        # Initialize attributes for each cover entity
+        for cover_info in self._covers:
+            entity_id = create_entity_id(
+                EntityTypes.COVER,
+                self.device_config.identifier,
+                cover_info.device_id,
+            )
+            state = (
+                cover.States.OPEN
+                if cover_info.current_state >= 5
+                else cover.States.CLOSED
+            )
+            self._cover_attributes[entity_id] = CoverAttributes(
+                STATE=state,
+                POSITION=cover_info.current_state,
+            )
+
+        # Initialize attributes for each scene/button entity
         for scene_info in self._scenes:
             entity_id = create_entity_id(
                 EntityTypes.BUTTON,
@@ -175,15 +196,15 @@ class SmartHub(ExternalClientDevice):
 
     def get_device_attributes(
         self, entity_id: str
-    ) -> LightAttributes | ButtonAttributes:
+    ) -> LightAttributes | ButtonAttributes | CoverAttributes:
         """Get entity attributes by entity_id."""
         if entity_id in self._light_attributes:
             return self._light_attributes[entity_id]
         if entity_id in self._button_attributes:
             return self._button_attributes[entity_id]
+        if entity_id in self._cover_attributes:
+            return self._cover_attributes[entity_id]
         return LightAttributes()  # Default fallback
-
-
 
     def _update_lights(self) -> None:
         """Update light attributes from Lutron hub."""
@@ -226,6 +247,7 @@ class SmartHub(ExternalClientDevice):
         if not self._lutron_smart_hub:
             return []
         lights = self._lutron_smart_hub.get_devices_by_domain("light")
+        switches = self._lutron_smart_hub.get_devices_by_domain("switch")
         light_list = []
         for entity in lights:
             light_list.append(
@@ -237,7 +259,36 @@ class SmartHub(ExternalClientDevice):
                     model=entity.get("model", ""),
                 )
             )
+        # Merge switches into light list
+        for entity in switches:
+            light_list.append(
+                LutronLightInfo(
+                    device_id=entity.get("device_id", ""),
+                    current_state=entity.get("current_state", 0),
+                    type=entity.get("type", ""),
+                    name=entity.get("name", ""),
+                    model=entity.get("model", ""),
+                )
+            )
         return light_list
+
+    def get_covers(self) -> list[Any]:
+        """Return the list of cover entities."""
+        if not self._lutron_smart_hub:
+            return []
+        covers = self._lutron_smart_hub.get_devices_by_domain("cover")
+        cover_list = []
+        for entity in covers:
+            cover_list.append(
+                LutronCoverInfo(
+                    device_id=entity.get("device_id", ""),
+                    current_state=entity.get("current_state", 0),
+                    type=entity.get("type", ""),
+                    name=entity.get("name", ""),
+                    model=entity.get("model", ""),
+                )
+            )
+        return cover_list
 
     def get_scenes(self) -> list[Any]:
         """Return the list of scene entities."""
@@ -322,6 +373,82 @@ class SmartHub(ExternalClientDevice):
         except Exception as err:  # pylint: disable=broad-exception-caught
             _LOG.error(
                 "[%s] Error turning off light %s: %s", self.log_id, light_id, err
+            )
+
+    async def open_cover(self, cover_id: str) -> None:
+        """Open a cover."""
+        if not self._lutron_smart_hub:
+            _LOG.error("[%s] Not connected", self.log_id)
+            return
+        try:
+            await self._lutron_smart_hub.set_value(cover_id, 100)
+
+            # Update stored attributes
+            entity_id = create_entity_id(
+                EntityTypes.COVER,
+                self.device_config.identifier,
+                cover_id,
+            )
+            self._cover_attributes[entity_id] = CoverAttributes(
+                STATE=cover.States.OPEN,
+                POSITION=100,
+            )
+        except Exception as err:  # pylint: disable=broad-exception-caught
+            _LOG.error("[%s] Error opening cover %s: %s", self.log_id, cover_id, err)
+
+    async def close_cover(self, cover_id: str) -> None:
+        """Close a cover."""
+        if not self._lutron_smart_hub:
+            _LOG.error("[%s] Not connected", self.log_id)
+            return
+        try:
+            await self._lutron_smart_hub.set_value(cover_id, 0)
+
+            # Update stored attributes
+            entity_id = create_entity_id(
+                EntityTypes.COVER,
+                self.device_config.identifier,
+                cover_id,
+            )
+            self._cover_attributes[entity_id] = CoverAttributes(
+                STATE=cover.States.CLOSED,
+                POSITION=0,
+            )
+        except Exception as err:  # pylint: disable=broad-exception-caught
+            _LOG.error("[%s] Error closing cover %s: %s", self.log_id, cover_id, err)
+
+    async def stop_cover(self, cover_id: str) -> None:
+        """Stop a cover."""
+        if not self._lutron_smart_hub:
+            _LOG.error("[%s] Not connected", self.log_id)
+            return
+        try:
+            await self._lutron_smart_hub.stop_cover(cover_id)
+        except Exception as err:  # pylint: disable=broad-exception-caught
+            _LOG.error("[%s] Error stopping cover %s: %s", self.log_id, cover_id, err)
+
+    async def set_cover_position(self, cover_id: str, position: int) -> None:
+        """Set cover position (0-100)."""
+        if not self._lutron_smart_hub:
+            _LOG.error("[%s] Not connected", self.log_id)
+            return
+        try:
+            await self._lutron_smart_hub.set_value(cover_id, position)
+
+            # Update stored attributes
+            entity_id = create_entity_id(
+                EntityTypes.COVER,
+                self.device_config.identifier,
+                cover_id,
+            )
+            state = cover.States.OPEN if position >= 5 else cover.States.CLOSED
+            self._cover_attributes[entity_id] = CoverAttributes(
+                STATE=state,
+                POSITION=position,
+            )
+        except Exception as err:  # pylint: disable=broad-exception-caught
+            _LOG.error(
+                "[%s] Error setting cover %s position: %s", self.log_id, cover_id, err
             )
 
     async def toggle_light(self, light_id: str) -> None:
