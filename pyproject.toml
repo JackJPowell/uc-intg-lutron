@@ -1,12 +1,12 @@
 [project]
 name = "uc-intg-lutron"
-version = "1.0.4"
+version = "1.1.0"
 description = "Unfolded Circle Lutron Caseta Integration"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "pylutron-caseta>=0.25.0",
     "ucapi==0.5.1",
-    "ucapi-framework==1.8.1",
+    "ucapi-framework==1.8.2",
     "zeroconf>=0.147.0",
 ]
