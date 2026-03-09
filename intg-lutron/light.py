@@ -12,13 +12,13 @@ import ucapi
 from bridge import LutronLightInfo, SmartHub
 from const import LutronConfig
 from ucapi import EntityTypes, light
-from ucapi.light import Attributes, Light, States
-from ucapi_framework import create_entity_id, Entity
+from ucapi.light import Attributes, States, Light
+from ucapi_framework import create_entity_id, LightEntity
 
 _LOG = logging.getLogger(__name__)
 
 
-class LutronLight(Light, Entity):
+class LutronLight(LightEntity):
     """Representation of a Lutron Light entity."""
 
     def __init__(
@@ -47,22 +47,33 @@ class LutronLight(Light, Entity):
             if light.Features.DIM in self.features:
                 self.features.remove(light.Features.DIM)
 
-        state = States.OFF
         super().__init__(
             self._entity_id,
             light_info.name.replace("_", " "),
             self.features,
             attributes={
-                Attributes.STATE: state,
+                Attributes.STATE: States.UNKNOWN,
                 Attributes.BRIGHTNESS: 0,
             },
             cmd_handler=self.cmd_handler,
         )
 
+        if device:
+            self.subscribe_to_device(device)
+
+    async def sync_state(self) -> None:
+        """Sync entity state from device update."""
+        if not self.device:
+            return
+        state = self.device.get_light_state(self.identifier)
+        if state is None:
+            return
+        self.update(state)
+
     # pylint: disable=too-many-statements
     async def cmd_handler(
         self,
-        entity: ucapi.Entity,
+        entity: LightEntity,
         cmd_id: str,
         params: dict[str, Any] | None,
         _: Any | None = None,
@@ -110,8 +121,6 @@ class LutronLight(Light, Entity):
                     _LOG.debug("Sending TOGGLE command to Light")
                     await self.device.toggle_light(f"{self.identifier}")
 
-            if self._entity_id:
-                self.update(self.device.get_device_attributes(self._entity_id))
         except Exception as ex:  # pylint: disable=broad-except
             _LOG.error("Error executing command %s: %s", cmd_id, ex)
             return ucapi.StatusCodes.BAD_REQUEST

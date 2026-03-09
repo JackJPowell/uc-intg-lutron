@@ -10,10 +10,9 @@ import os
 import sys
 from const import LutronCoverInfo, LutronConfig, LutronLightInfo, LutronSceneInfo
 from pylutron_caseta.smartbridge import Smartbridge
-from ucapi import EntityTypes, button, light, cover
+from ucapi import button, light, cover
 from ucapi_framework import (
     ExternalClientDevice,
-    create_entity_id,
     LightAttributes,
     ButtonAttributes,
     CoverAttributes,
@@ -50,10 +49,10 @@ class SmartHub(ExternalClientDevice):
         self._scenes: list[LutronSceneInfo] = []
         self._scene: LutronSceneInfo | None = None
 
-        # Store entity attributes indexed by entity_id
-        self._light_attributes: dict[str, LightAttributes] = {}
-        self._button_attributes: dict[str, ButtonAttributes] = {}
-        self._cover_attributes: dict[str, CoverAttributes] = {}
+        # Store device state indexed by device_id (not entity_id)
+        self._light_states: dict[str, LightAttributes] = {}
+        self._cover_states: dict[str, CoverAttributes] = {}
+        self._button_states: dict[str, ButtonAttributes] = {}
 
     @property
     def device_config(self) -> LutronConfig:
@@ -138,14 +137,9 @@ class SmartHub(ExternalClientDevice):
         self._covers = self.get_covers()
         self._scenes = self.get_scenes()
 
-        # Initialize attributes for each light entity
+        # Initialize state for each light device
         for light_info in self._lights:
-            entity_id = create_entity_id(
-                EntityTypes.LIGHT,
-                self.device_config.identifier,
-                light_info.device_id,
-            )
-            self._light_attributes[entity_id] = LightAttributes(
+            self._light_states[light_info.device_id] = LightAttributes(
                 STATE=light.States.ON
                 if light_info.current_state > 0
                 else light.States.OFF,
@@ -156,33 +150,25 @@ class SmartHub(ExternalClientDevice):
                 light_info.device_id, self._update_lights
             )
 
-        # Initialize attributes for each cover entity
+        # Initialize state for each cover device
         for cover_info in self._covers:
-            entity_id = create_entity_id(
-                EntityTypes.COVER,
-                self.device_config.identifier,
-                cover_info.device_id,
-            )
             state = (
                 cover.States.OPEN
                 if cover_info.current_state >= 5
                 else cover.States.CLOSED
             )
-            self._cover_attributes[entity_id] = CoverAttributes(
+            self._cover_states[cover_info.device_id] = CoverAttributes(
                 STATE=state,
                 POSITION=cover_info.current_state,
             )
 
-        # Initialize attributes for each scene/button entity
+        # Initialize state for each scene/button
         for scene_info in self._scenes:
-            entity_id = create_entity_id(
-                EntityTypes.BUTTON,
-                self.device_config.identifier,
-                scene_info.scene_id,
-            )
-            self._button_attributes[entity_id] = ButtonAttributes(
+            self._button_states[scene_info.scene_id] = ButtonAttributes(
                 STATE=button.States.AVAILABLE,
             )
+
+        self.push_update()
 
     async def disconnect_client(self) -> None:
         """Disconnect the Smartbridge client."""
@@ -194,50 +180,40 @@ class SmartHub(ExternalClientDevice):
         """Check if the Smartbridge client is connected."""
         return self._lutron_smart_hub is not None and self._lutron_smart_hub.logged_in
 
-    def get_device_attributes(
-        self, entity_id: str
-    ) -> LightAttributes | ButtonAttributes | CoverAttributes:
-        """Get entity attributes by entity_id."""
-        if entity_id in self._light_attributes:
-            return self._light_attributes[entity_id]
-        if entity_id in self._button_attributes:
-            return self._button_attributes[entity_id]
-        if entity_id in self._cover_attributes:
-            return self._cover_attributes[entity_id]
-        return LightAttributes()  # Default fallback
+    def get_light_state(self, device_id: str) -> LightAttributes | None:
+        """Get light state by Lutron device_id."""
+        return self._light_states.get(device_id)
+
+    def get_cover_state(self, device_id: str) -> CoverAttributes | None:
+        """Get cover state by Lutron device_id."""
+        return self._cover_states.get(device_id)
+
+    def get_button_state(self, scene_id: str) -> ButtonAttributes | None:
+        """Get button state by scene_id."""
+        return self._button_states.get(scene_id)
 
     def _update_lights(self) -> None:
-        """Update light attributes from Lutron hub."""
+        """Update light states from Lutron hub and notify subscribed entities."""
         if not self._lutron_smart_hub:
             return
         try:
             self._lights = self.get_lights()
 
+            changed = False
             for entity in self._lights:
-                entity_id = create_entity_id(
-                    EntityTypes.LIGHT,
-                    self.device_config.identifier,
-                    entity.device_id,
-                )
-                # Get old attributes to compare
-                old_attributes = self._light_attributes.get(entity_id)
-
-                # Update stored attributes
-                new_attributes = LightAttributes(
+                old_state = self._light_states.get(entity.device_id)
+                new_state = LightAttributes(
                     STATE=light.States.ON
                     if entity.current_state > 0
                     else light.States.OFF,
                     BRIGHTNESS=int(entity.current_state * 255 / 100),
                 )
-                self._light_attributes[entity_id] = new_attributes
+                if old_state != new_state:
+                    self._light_states[entity.device_id] = new_state
+                    changed = True
 
-                # Emit update event if attributes changed
-                if old_attributes != new_attributes:
-                    # Get the entity from driver and call update
-                    if self.driver:
-                        light_entity = self.driver.get_entity_by_id(entity_id)
-                        if light_entity:
-                            light_entity.update(new_attributes)
+            if changed:
+                self.push_update()
 
         except Exception:  # pylint: disable=broad-exception-caught
             _LOG.exception("[%s] Light update error", self.log_id)
@@ -335,20 +311,15 @@ class SmartHub(ExternalClientDevice):
             else:
                 await self._lutron_smart_hub.turn_on(light_id)
 
-            # Update stored attributes
-            entity_id = create_entity_id(
-                EntityTypes.LIGHT,
-                self.device_config.identifier,
-                light_id,
-            )
             # Convert Lutron brightness (0-100) back to ucapi (0-255)
             ucapi_brightness = (
                 int(brightness * 255 / 100) if brightness is not None else 255
             )
-            self._light_attributes[entity_id] = LightAttributes(
+            self._light_states[light_id] = LightAttributes(
                 STATE=light.States.ON,
                 BRIGHTNESS=ucapi_brightness,
             )
+            self.push_update()
         except Exception as err:  # pylint: disable=broad-exception-caught
             _LOG.error("[%s] Error turning on light %s: %s", self.log_id, light_id, err)
 
@@ -360,16 +331,11 @@ class SmartHub(ExternalClientDevice):
         try:
             await self._lutron_smart_hub.turn_off(light_id)
 
-            # Update stored attributes
-            entity_id = create_entity_id(
-                EntityTypes.LIGHT,
-                self.device_config.identifier,
-                light_id,
-            )
-            self._light_attributes[entity_id] = LightAttributes(
+            self._light_states[light_id] = LightAttributes(
                 STATE=light.States.OFF,
                 BRIGHTNESS=0,
             )
+            self.push_update()
         except Exception as err:  # pylint: disable=broad-exception-caught
             _LOG.error(
                 "[%s] Error turning off light %s: %s", self.log_id, light_id, err
@@ -383,16 +349,11 @@ class SmartHub(ExternalClientDevice):
         try:
             await self._lutron_smart_hub.set_value(cover_id, 100)
 
-            # Update stored attributes
-            entity_id = create_entity_id(
-                EntityTypes.COVER,
-                self.device_config.identifier,
-                cover_id,
-            )
-            self._cover_attributes[entity_id] = CoverAttributes(
+            self._cover_states[cover_id] = CoverAttributes(
                 STATE=cover.States.OPEN,
                 POSITION=100,
             )
+            self.push_update()
         except Exception as err:  # pylint: disable=broad-exception-caught
             _LOG.error("[%s] Error opening cover %s: %s", self.log_id, cover_id, err)
 
@@ -404,16 +365,11 @@ class SmartHub(ExternalClientDevice):
         try:
             await self._lutron_smart_hub.set_value(cover_id, 0)
 
-            # Update stored attributes
-            entity_id = create_entity_id(
-                EntityTypes.COVER,
-                self.device_config.identifier,
-                cover_id,
-            )
-            self._cover_attributes[entity_id] = CoverAttributes(
+            self._cover_states[cover_id] = CoverAttributes(
                 STATE=cover.States.CLOSED,
                 POSITION=0,
             )
+            self.push_update()
         except Exception as err:  # pylint: disable=broad-exception-caught
             _LOG.error("[%s] Error closing cover %s: %s", self.log_id, cover_id, err)
 
@@ -435,17 +391,12 @@ class SmartHub(ExternalClientDevice):
         try:
             await self._lutron_smart_hub.set_value(cover_id, position)
 
-            # Update stored attributes
-            entity_id = create_entity_id(
-                EntityTypes.COVER,
-                self.device_config.identifier,
-                cover_id,
-            )
             state = cover.States.OPEN if position >= 5 else cover.States.CLOSED
-            self._cover_attributes[entity_id] = CoverAttributes(
+            self._cover_states[cover_id] = CoverAttributes(
                 STATE=state,
                 POSITION=position,
             )
+            self.push_update()
         except Exception as err:  # pylint: disable=broad-exception-caught
             _LOG.error(
                 "[%s] Error setting cover %s position: %s", self.log_id, cover_id, err
@@ -463,16 +414,11 @@ class SmartHub(ExternalClientDevice):
             else:
                 await self._lutron_smart_hub.turn_on(light_id)
 
-            # Update stored attributes
-            entity_id = create_entity_id(
-                EntityTypes.LIGHT,
-                self.device_config.identifier,
-                light_id,
-            )
-            self._light_attributes[entity_id] = LightAttributes(
+            self._light_states[light_id] = LightAttributes(
                 STATE=light.States.ON if not is_on else light.States.OFF,
                 BRIGHTNESS=255 if not is_on else 0,
             )
+            self.push_update()
         except Exception as err:  # pylint: disable=broad-exception-caught
             _LOG.error("[%s] Error toggling light %s: %s", self.log_id, light_id, err)
 

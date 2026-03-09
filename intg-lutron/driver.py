@@ -36,17 +36,14 @@ async def main():
         device_class=SmartHub,
         entity_classes=[
             lambda cfg, dev: [
-                LutronLight(cfg, light_info, dev)
-                for light_info in dev.lights
+                LutronLight(cfg, light_info, dev) for light_info in dev.lights
             ],
             lambda cfg, dev: [
-                LutronCover(cfg, cover_info, dev)
-                for cover_info in dev.covers
+                LutronCover(cfg, cover_info, dev) for cover_info in dev.covers
             ],
             lambda cfg, dev: [
-                LutronButton(cfg, scene_info, dev)
-                for scene_info in dev.scenes
-            ]
+                LutronButton(cfg, scene_info, dev) for scene_info in dev.scenes
+            ],
         ],
         require_connection_before_registry=True,
     )
@@ -69,4 +66,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-

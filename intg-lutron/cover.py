@@ -10,13 +10,14 @@ from typing import Any
 import ucapi
 from bridge import SmartHub, LutronCoverInfo
 from const import LutronConfig
-from ucapi import Cover, EntityTypes, cover
-from ucapi_framework import create_entity_id, Entity
+from ucapi import EntityTypes, cover
+from ucapi_framework import create_entity_id
+from ucapi_framework.entities import CoverEntity
 
 _LOG = logging.getLogger(__name__)
 
 
-class LutronCover(Cover, Entity):
+class LutronCover(CoverEntity):
     """Representation of a Lutron Cover entity."""
 
     def __init__(
@@ -30,10 +31,6 @@ class LutronCover(Cover, Entity):
         self.config = config
         self.device = device
         self._cover_id = cover_info.device_id
-        
-        # Determine initial state based on current position
-        state = cover.States.OPEN if cover_info.current_state >= 5 else cover.States.CLOSED
-        position = cover_info.current_state
 
         super().__init__(
             create_entity_id(
@@ -47,16 +44,28 @@ class LutronCover(Cover, Entity):
                 cover.Features.POSITION,
             ],
             attributes={
-                cover.Attributes.STATE: state,
-                cover.Attributes.POSITION: position,
+                cover.Attributes.STATE: cover.States.UNKNOWN,
+                cover.Attributes.POSITION: 0,
             },
             device_class=cover.DeviceClasses.SHADE,
             cmd_handler=self.cover_cmd_handler,
         )
 
+        if device:
+            self.subscribe_to_device(device)
+
+    async def sync_state(self) -> None:
+        """Sync entity state from device update."""
+        if not self.device:
+            return
+        state = self.device.get_cover_state(self._cover_id)
+        if state is None:
+            return
+        self.update(state)
+
     async def cover_cmd_handler(
         self,
-        entity: Cover,
+        entity: CoverEntity,
         cmd_id: str,
         params: dict[str, Any] | None,
         _: Any | None = None,
@@ -93,9 +102,6 @@ class LutronCover(Cover, Entity):
                         await self.device.set_cover_position(
                             cover_id=self._cover_id, position=position
                         )
-
-            # Get updated attributes from device and update entity
-            self.update(self.device.get_device_attributes(entity.id))
 
         except Exception as ex:  # pylint: disable=broad-except
             _LOG.error("Error executing command %s: %s", cmd_id, ex)

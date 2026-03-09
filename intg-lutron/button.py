@@ -10,13 +10,13 @@ from typing import Any
 import ucapi
 from bridge import SmartHub
 from const import LutronConfig, LutronSceneInfo
-from ucapi import Button, EntityTypes, button
-from ucapi_framework import create_entity_id, Entity
+from ucapi import EntityTypes, button
+from ucapi_framework import create_entity_id, ButtonEntity
 
 _LOG = logging.getLogger(__name__)
 
 
-class LutronButton(Button, Entity):
+class LutronButton(ButtonEntity):
     """Representation of a Lutron Button entity."""
 
     def __init__(
@@ -40,8 +40,24 @@ class LutronButton(Button, Entity):
             cmd_handler=self.button_cmd_handler,
         )
 
+        if device:
+            self.subscribe_to_device(device)
+
+    async def sync_state(self) -> None:
+        """Sync entity state from device update."""
+        if not self.device:
+            return
+        state = self.device.get_button_state(self.scene_id)
+        if state is None:
+            return
+        self.update(state)
+
     async def button_cmd_handler(
-        self, entity: ucapi.Entity, cmd_id: str, params: dict[str, Any] | None, _: Any | None = None
+        self,
+        entity: ButtonEntity,
+        cmd_id: str,
+        params: dict[str, Any] | None,
+        _: Any | None = None,
     ) -> ucapi.StatusCodes:
         """
         Button entity command handler.
@@ -56,17 +72,15 @@ class LutronButton(Button, Entity):
         _LOG.info(
             "Got %s command request: %s %s", entity.id, cmd_id, params if params else ""
         )
-        
+
         if not self.device:
             _LOG.error("Device not available")
             return ucapi.StatusCodes.SERVICE_UNAVAILABLE
-        
+
         try:
             match cmd_id:
                 case button.Commands.PUSH:
                     await self.device.activate_scene(scene_id=self.scene_id)
-                    # Update entity attributes from device
-                    self.update(self.device.get_device_attributes(entity.id))
 
         except Exception as ex:  # pylint: disable=broad-except
             _LOG.error("Error executing command %s: %s", cmd_id, ex)
