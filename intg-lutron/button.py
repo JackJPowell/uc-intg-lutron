@@ -50,7 +50,7 @@ class LutronButton(ButtonEntity):
         state = self.device.get_button_state(self.scene_id)
         if state is None:
             return
-        self.update(state)
+        self.update(state, force=True)
 
     async def button_cmd_handler(
         self,
