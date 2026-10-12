@@ -4,19 +4,20 @@ This module implements the Lutron communication of the Remote Two/3 integration 
 """
 
 import logging
-from asyncio import AbstractEventLoop
-from typing import Any
 import os
 import sys
-from const import LutronCoverInfo, LutronConfig, LutronLightInfo, LutronSceneInfo
+from asyncio import AbstractEventLoop
+from typing import Any
+
+from const import LutronConfig, LutronCoverInfo, LutronLightInfo, LutronSceneInfo
 from pylutron_caseta.smartbridge import Smartbridge
-from ucapi import button, light, cover
+from ucapi import button, cover, light
 from ucapi_framework import (
-    ExternalClientDevice,
-    LightAttributes,
+    BaseIntegrationDriver,
     ButtonAttributes,
     CoverAttributes,
-    BaseIntegrationDriver,
+    ExternalClientDevice,
+    LightAttributes,
 )
 
 _LOG = logging.getLogger(__name__)

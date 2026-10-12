@@ -11,7 +11,7 @@ import ucapi
 from bridge import SmartHub
 from const import LutronConfig, LutronSceneInfo
 from ucapi import EntityTypes, button
-from ucapi_framework import create_entity_id, ButtonEntity
+from ucapi_framework import ButtonEntity, create_entity_id
 
 _LOG = logging.getLogger(__name__)
 

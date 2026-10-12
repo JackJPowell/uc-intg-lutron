@@ -8,7 +8,7 @@ import logging
 from typing import Any
 
 import ucapi
-from bridge import SmartHub, LutronCoverInfo
+from bridge import LutronCoverInfo, SmartHub
 from const import LutronConfig
 from ucapi import EntityTypes, cover
 from ucapi_framework import create_entity_id

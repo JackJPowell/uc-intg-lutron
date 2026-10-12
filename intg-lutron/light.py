@@ -13,7 +13,7 @@ from bridge import LutronLightInfo, SmartHub
 from const import LutronConfig
 from ucapi import EntityTypes, light
 from ucapi.light import Attributes, States
-from ucapi_framework import create_entity_id, LightEntity
+from ucapi_framework import LightEntity, create_entity_id
 
 _LOG = logging.getLogger(__name__)
 
